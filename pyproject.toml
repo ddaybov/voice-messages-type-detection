@@ -1,0 +1,11 @@
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+skip-string-normalization = true
+
+[tool.ruff]
+line-length = 100
+fix = true
+select = ["E","F","I","UP","B","SIM","PL"]
+ignore = ["E203","E501"]

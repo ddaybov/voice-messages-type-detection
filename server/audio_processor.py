@@ -1,0 +1,121 @@
+
+import os
+import tempfile
+import logging
+from dataclasses import dataclass
+from typing import Optional, Tuple
+
+from pydub import AudioSegment
+import speech_recognition as sr
+
+logger = logging.getLogger(__name__)
+
+FFMPEG_BIN = os.getenv("FFMPEG_BIN", "")
+FFPROBE_BIN = os.getenv("FFPROBE_BIN", "")
+
+if FFMPEG_BIN and os.path.exists(FFMPEG_BIN):
+    AudioSegment.converter = FFMPEG_BIN
+if FFPROBE_BIN and os.path.exists(FFPROBE_BIN):
+    AudioSegment.ffprobe = FFPROBE_BIN
+
+SUPPORTED_LANGUAGES = {
+    "ru-RU": "Русский",
+    "en-US": "English (US)",
+}
+
+@dataclass
+class ASRResult:
+    text: str
+    duration: float
+    word_count: int
+    backend: str
+
+class AudioService:
+    def __init__(self):
+        self.min_duration = float(os.getenv("MIN_DURATION", "0") or 0)
+        self.min_words = int(os.getenv("MIN_WORDS", "0") or 0)
+        self.asr_backend = os.getenv("ASR_BACKEND", "speech_recognition")
+
+    def get_supported_formats(self) -> list[str]:
+        return ['wav', 'mp3', 'm4a', 'aac', 'flac', 'ogg', 'wma']
+
+    def get_supported_languages(self) -> dict:
+        return SUPPORTED_LANGUAGES
+
+    def to_wav(self, file_path: str) -> Optional[str]:
+        try:
+            audio = AudioSegment.from_file(file_path)
+            audio = audio.set_frame_rate(16000).set_channels(1)
+            fd, wav_path = tempfile.mkstemp(suffix=".wav"); os.close(fd)
+            audio.export(wav_path, format="wav")
+            return wav_path
+        except Exception as e:
+            logger.exception("FFmpeg convert error: %s", e)
+            return None
+
+    def transcribe(self, wav_path: str, lang: str) -> Optional[ASRResult]:
+        lang = lang if lang in SUPPORTED_LANGUAGES else "ru-RU"
+        if self.asr_backend == "speech_recognition":
+            return self._transcribe_speech_recognition(wav_path, lang)
+        if self.asr_backend == "vosk":
+            return self._transcribe_vosk(wav_path, lang)
+        if self.asr_backend == "whisper":
+            return self._transcribe_whisper(wav_path, lang)
+        logger.error("Unknown ASR_BACKEND=%s", self.asr_backend); return None
+
+    def _transcribe_speech_recognition(self, wav_path: str, lang: str) -> Optional[ASRResult]:
+        r = sr.Recognizer()
+        with sr.AudioFile(wav_path) as source:
+            audio = r.record(source)
+        text = ""
+        backend_name = "SpeechRecognition(Google)"
+        try:
+            text = r.recognize_google(audio, language=lang)
+        except sr.RequestError:
+            try:
+                text = r.recognize_sphinx(audio, language=lang.split('-')[0])
+                backend_name = "SpeechRecognition(Sphinx)"
+            except Exception:
+                logger.exception("PocketSphinx not available/failed")
+                return None
+        except sr.UnknownValueError:
+            text = ""
+        duration = AudioSegment.from_wav(wav_path).duration_seconds
+        words = len(text.strip().split()) if text else 0
+        return ASRResult(text=text, duration=float(duration), word_count=words, backend=backend_name)
+
+    def _transcribe_vosk(self, wav_path: str, lang: str) -> Optional[ASRResult]:
+        try:
+            from vosk import Model, KaldiRecognizer
+            import json as _json, wave
+        except Exception:
+            logger.exception("Please install vosk to use ASR_BACKEND=vosk"); return None
+        model_path = os.getenv("VOSK_MODEL_PATH")
+        if not model_path or not os.path.exists(model_path):
+            logger.error("VOSK_MODEL_PATH not set or missing: %s", model_path); return None
+        wf = wave.open(wav_path, "rb")
+        rec = KaldiRecognizer(Model(model_path), wf.getframerate()); rec.SetWords(True)
+        text = []
+        while True:
+            data = wf.readframes(4000)
+            if len(data) == 0: break
+            if rec.AcceptWaveform(data):
+                res = rec.Result(); text.append(_json.loads(res).get("text",""))
+        final = _json.loads(rec.FinalResult()).get("text","")
+        full_text = " ".join([*text, final]).strip()
+        duration = AudioSegment.from_wav(wav_path).duration_seconds
+        return ASRResult(text=full_text, duration=float(duration), word_count=len(full_text.split()), backend="Vosk")
+
+    def _transcribe_whisper(self, wav_path: str, lang: str) -> Optional[ASRResult]:
+        try:
+            import whisper
+        except Exception:
+            logger.exception("Please install openai-whisper to use ASR_BACKEND=whisper"); return None
+        model_name = os.getenv("WHISPER_MODEL", "base")
+        model = whisper.load_model(model_name)
+        result = model.transcribe(wav_path, language=lang.split('-')[0])
+        text = result.get("text", "").strip()
+        duration = AudioSegment.from_wav(wav_path).duration_seconds
+        return ASRResult(text=text, duration=float(duration), word_count=len(text.split()), backend=f"Whisper({model_name})")
+
+audio_service = AudioService()

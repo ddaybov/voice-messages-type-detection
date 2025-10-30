@@ -1,0 +1,12 @@
+{
+  "members": [
+    {
+      "model": "logreg",
+      "weight": 0.5
+    },
+    {
+      "model": "dimanet",
+      "weight": 0.5
+    }
+  ]
+}
