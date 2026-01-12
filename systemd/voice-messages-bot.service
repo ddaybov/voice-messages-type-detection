@@ -9,7 +9,7 @@ User=root
 WorkingDirectory=/root/voice-messages-type-detection
 Environment="PATH=/root/voice-messages-type-detection/.venv/bin"
 EnvironmentFile=/root/voice-messages-type-detection/.env
-ExecStart=/root/voice-messages-type-detection/.venv/bin/python -m telegram.bot
+ExecStart=/root/voice-messages-type-detection/.venv/bin/python -m bot.bot
 Restart=always
 RestartSec=10
 StandardOutput=journal

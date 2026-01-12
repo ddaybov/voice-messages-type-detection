@@ -31,7 +31,7 @@ if [ -f "bot.pid" ]; then
     rm -f bot.pid
 else
     echo "⚠️  bot.pid не найден, пытаюсь найти процесс..."
-    pkill -f "telegram.bot" && echo "✅ Бот остановлен" || echo "⚠️  Процесс бота не найден"
+    pkill -f "bot.bot" && echo "✅ Бот остановлен" || echo "⚠️  Процесс бота не найден"
 fi
 
 echo ""
