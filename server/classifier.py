@@ -7,10 +7,27 @@ from typing import Dict, Any, Optional, List
 
 import numpy as np
 import joblib
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
+
+# PyTorch imports - только при необходимости
+try:
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    torch = None
+    nn = None
+    F = None
+
+# Transformers imports - только при необходимости
+try:
+    from transformers import AutoTokenizer, AutoModelForSequenceClassification
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
+    AutoTokenizer = None
+    AutoModelForSequenceClassification = None
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +151,8 @@ class TextClassifier:
         return PredictResult(True, label_idx, label_name, conf, len(text), model_id).__dict__
 
     def _ensure_daybovnet(self) -> bool:
+        if not TORCH_AVAILABLE:
+            return False
         path = os.path.join(self.models_dir, "daybovnet.pt")
         if not os.path.exists(path):
             return False
@@ -148,6 +167,8 @@ class TextClassifier:
         return True
 
     def _predict_daybovnet(self, text: str) -> Dict[str, Any]:
+        if not TORCH_AVAILABLE:
+            return PredictResult(False, error="PyTorch not installed. DaybovNet requires PyTorch.").__dict__
         if not self._ensure_daybovnet():
             return PredictResult(False, error="daybovnet.pt not found in models/").__dict__
         x = encode_chars(text, self._day_vocab)
@@ -159,6 +180,8 @@ class TextClassifier:
         return PredictResult(True, label_idx, label_name, conf, len(text), "daybovnet").__dict__
 
     def _predict_transformer(self, text: str) -> Dict[str, Any]:
+        if not TRANSFORMERS_AVAILABLE:
+            return PredictResult(False, error="Transformers library not installed").__dict__
         name = os.getenv("TRANSFORMER_MODEL", "cointegrated/rubert-tiny2")
         if name not in self._hf:
             try:
@@ -168,6 +191,8 @@ class TextClassifier:
             except Exception:
                 logger.exception("Could not load transformer model: %s", name)
                 return PredictResult(False, error="Transformer model not available").__dict__
+        if not TRANSFORMERS_AVAILABLE or not TORCH_AVAILABLE:
+            return PredictResult(False, error="Transformers/PyTorch not installed").__dict__
         tok, mdl = self._hf[name]
         inputs = tok([text], return_tensors="pt", truncation=True, padding=True)
         with torch.no_grad():
@@ -203,19 +228,22 @@ class TextClassifier:
                     members.append((m, p))
 
         if weights.get("bert",0)>0:
-            name = os.getenv("TRANSFORMER_MODEL", "cointegrated/rubert-tiny2")
-            try:
-                tok, mdl = self._hf.get(name) or (None, None)
-                if tok is None:
-                    tok = AutoTokenizer.from_pretrained(name)
-                    mdl = AutoModelForSequenceClassification.from_pretrained(name, num_labels=int(os.getenv("NUM_LABELS","2")))
-                    self._hf[name]=(tok, mdl.eval())
-                inputs = tok([text], return_tensors="pt", truncation=True, padding=True)
-                with torch.no_grad():
-                    logits = mdl(**inputs).logits; p = F.softmax(logits, dim=-1).cpu().numpy()[0]
-                members.append(("bert", p))
-            except Exception:
-                logger.warning("Transformer unavailable for ensemble")
+            if not TRANSFORMERS_AVAILABLE:
+                logger.warning("Transformers unavailable for ensemble")
+            else:
+                name = os.getenv("TRANSFORMER_MODEL", "cointegrated/rubert-tiny2")
+                try:
+                    tok, mdl = self._hf.get(name) or (None, None)
+                    if tok is None:
+                        tok = AutoTokenizer.from_pretrained(name)
+                        mdl = AutoModelForSequenceClassification.from_pretrained(name, num_labels=int(os.getenv("NUM_LABELS","2")))
+                        self._hf[name]=(tok, mdl.eval())
+                    inputs = tok([text], return_tensors="pt", truncation=True, padding=True)
+                    with torch.no_grad():
+                        logits = mdl(**inputs).logits; p = F.softmax(logits, dim=-1).cpu().numpy()[0]
+                    members.append(("bert", p))
+                except Exception:
+                    logger.warning("Transformer unavailable for ensemble")
 
         if not members:
             return PredictResult(False, error="No models available for ensemble").__dict__
@@ -231,10 +259,9 @@ class TextClassifier:
 
 
     def _predict_dimanet(self, text: str) -> Dict[str, Any]:
+        if not TORCH_AVAILABLE:
+            return PredictResult(False, error="PyTorch not installed. DimaNet requires PyTorch.").__dict__
         import json as _json
-        import torch
-        import torch.nn as nn
-        import torch.nn.functional as F
         vocab_path = os.path.join(self.models_dir, "dimanet_vocab.json")
         model_path = os.path.join(self.models_dir, "dimanet.pt")
         if not (os.path.exists(vocab_path) and os.path.exists(model_path)):
