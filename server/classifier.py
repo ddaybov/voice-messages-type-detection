@@ -32,24 +32,33 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # ----- DaybovNet (char-CNN, авторская) -----
-class DaybovNet(nn.Module):
-    def __init__(self, vocab_size:int, num_classes:int, embed_dim:int=64, num_filters:int=64, kernels=(3,5,7)):
-        super().__init__()
-        self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=0)
-        self.convs = nn.ModuleList([nn.Conv1d(embed_dim, num_filters, k) for k in kernels])
-        self.fc = nn.Linear(num_filters * len(kernels), num_classes)
+# Определяем класс только если PyTorch доступен
+if TORCH_AVAILABLE:
+    class DaybovNet(nn.Module):
+        def __init__(self, vocab_size:int, num_classes:int, embed_dim:int=64, num_filters:int=64, kernels=(3,5,7)):
+            super().__init__()
+            self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=0)
+            self.convs = nn.ModuleList([nn.Conv1d(embed_dim, num_filters, k) for k in kernels])
+            self.fc = nn.Linear(num_filters * len(kernels), num_classes)
 
-    def forward(self, x):
-        x = self.embedding(x).transpose(1,2)
-        xs = [F.max_pool1d(F.relu(c(x)), c(x).shape[-1]).squeeze(-1) for c in self.convs]
-        x = torch.cat(xs, dim=1)
-        return self.fc(x)
+        def forward(self, x):
+            x = self.embedding(x).transpose(1,2)
+            xs = [F.max_pool1d(F.relu(c(x)), c(x).shape[-1]).squeeze(-1) for c in self.convs]
+            x = torch.cat(xs, dim=1)
+            return self.fc(x)
 
-def encode_chars(text:str, vocab:dict, max_len:int=400):
-    ids = [vocab.get(c.lower(), 0) for c in text[:max_len]]
-    if len(ids) < max_len:
-        ids += [0]*(max_len-len(ids))
-    return torch.tensor(ids, dtype=torch.long)[None, :]
+    def encode_chars(text:str, vocab:dict, max_len:int=400):
+        ids = [vocab.get(c.lower(), 0) for c in text[:max_len]]
+        if len(ids) < max_len:
+            ids += [0]*(max_len-len(ids))
+        return torch.tensor(ids, dtype=torch.long)[None, :]
+else:
+    # Заглушки для случая, когда PyTorch не установлен
+    class DaybovNet:
+        pass
+    
+    def encode_chars(text:str, vocab:dict, max_len:int=400):
+        raise ImportError("PyTorch not available")
 
 @dataclass
 class PredictResult:
@@ -275,6 +284,7 @@ class TextClassifier:
                 return PredictResult(False, error=f"Error loading DimaNet vocabulary: {e}").__dict__
         state = torch.load(model_path, map_location="cpu")
 
+        # Определяем DimaNet класс внутри функции (локально)
         class DimaNet(nn.Module):
             def __init__(self, vocab_size, emb_dim=128, lstm_dim=128, num_classes=2):
                 super().__init__()
