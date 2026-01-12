@@ -52,6 +52,7 @@ class TextClassifier:
         self._hf: dict = {}   # name -> (tok, model)
         self._day_model: Optional[nn.Module] = None
         self._day_vocab: Optional[dict] = None
+        self._cnn_vocab: Optional[dict] = None
 
     def available(self) -> Dict[str, str]:
         return {
@@ -77,9 +78,29 @@ class TextClassifier:
     def predict(self, text: str, model: str = "daybovnet") -> Dict[str, Any]:
         self.load_labels()
         model = model or os.getenv("DEFAULT_MODEL", "daybovnet")
+        
+        # Normalize model aliases
+        model_aliases = {
+            "daybov": "daybovnet",
+            "daybovnet": "daybovnet",
+            "logreg": "logreg",
+            "logistic": "logreg",
+            "svm": "svm",
+            "nb": "nb",
+            "naive_bayes": "nb",
+            "bert": "bert",
+            "dimanet": "dimanet",
+            "dima": "dimanet",
+            "ensemble": "ensemble",
+        }
+        model = model_aliases.get(model.lower(), model)
+        
         text = (text or "").strip()
         if not text:
-            return PredictResult(False, error="Empty text").__dict__
+            return PredictResult(
+                False, 
+                error="Не удалось распознать текст из аудио. Проверьте качество записи или настройки ASR."
+            ).__dict__
 
         if model in ("logreg", "svm", "nb"):
             return self._predict_sklearn(text, model_id=model)
@@ -87,10 +108,15 @@ class TextClassifier:
             return self._predict_transformer(text)
         if model == "daybovnet":
             return self._predict_daybovnet(text)
+        if model == "dimanet":
+            return self._predict_dimanet(text)
         if model == "ensemble":
             return self._predict_ensemble(text)
 
-        return PredictResult(False, error=f"Unknown model '{model}'").__dict__
+        return PredictResult(
+            False, 
+            error=f"Неизвестная модель '{model}'. Доступные: daybovnet, logreg, svm, nb, bert, dimanet, ensemble"
+        ).__dict__
 
     # ---- models ----
     def _predict_sklearn(self, text: str, model_id: str) -> Dict[str, Any]:
@@ -212,10 +238,14 @@ class TextClassifier:
         vocab_path = os.path.join(self.models_dir, "dimanet_vocab.json")
         model_path = os.path.join(self.models_dir, "dimanet.pt")
         if not (os.path.exists(vocab_path) and os.path.exists(model_path)):
-            return {"success": False, "error": "DimaNet artifacts not found (dimanet_vocab.json, dimanet.pt)"}
+            return PredictResult(False, error="DimaNet artifacts not found (dimanet_vocab.json, dimanet.pt)").__dict__
         if self._cnn_vocab is None:
-            with open(vocab_path, "r", encoding="utf-8") as f:
-                self._cnn_vocab = _json.load(f)
+            try:
+                with open(vocab_path, "r", encoding="utf-8") as f:
+                    self._cnn_vocab = _json.load(f)
+            except Exception as e:
+                logger.exception("Error loading DimaNet vocab: %s", e)
+                return PredictResult(False, error=f"Error loading DimaNet vocabulary: {e}").__dict__
         state = torch.load(model_path, map_location="cpu")
 
         class DimaNet(nn.Module):
@@ -248,7 +278,7 @@ class TextClassifier:
 
         tokens = [self._cnn_vocab.get(tok, 0) for tok in text.lower().split()]
         if not tokens:
-            return {"success": False, "error": "Empty text for DimaNet"}
+            return PredictResult(False, error="Не удалось распознать текст из аудио для DimaNet").__dict__
         x = torch.tensor(tokens, dtype=torch.long)[None,:]
         with torch.no_grad():
             logits = model(x)

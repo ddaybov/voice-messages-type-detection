@@ -78,11 +78,35 @@ async def predict(
         try: os.unlink(p)
         except Exception: pass
     if not asr:
-        return PredictResponse(success=False, error="ASR failed (check backend and env)")
+        return PredictResponse(
+            success=False, 
+            error="Не удалось распознать речь. Проверьте настройки ASR_BACKEND в .env и качество аудио."
+        )
+    if not asr.text or not asr.text.strip():
+        return PredictResponse(
+            success=False,
+            error="Не удалось распознать текст из аудио. Проверьте качество записи или настройки ASR.",
+            duration=asr.duration,
+            word_count=asr.word_count,
+            asr_backend=asr.backend,
+        )
     if audio_service.min_duration and asr.duration < audio_service.min_duration:
-        return PredictResponse(success=False, error=f"Audio shorter than MIN_DURATION={audio_service.min_duration}s")
+        return PredictResponse(
+            success=False, 
+            error=f"Аудио слишком короткое (минимум {audio_service.min_duration} сек)",
+            duration=asr.duration,
+            word_count=asr.word_count,
+            asr_backend=asr.backend,
+        )
     if audio_service.min_words and asr.word_count < audio_service.min_words:
-        return PredictResponse(success=False, error=f"Text shorter than MIN_WORDS={audio_service.min_words}")
+        return PredictResponse(
+            success=False, 
+            error=f"Текст слишком короткий (минимум {audio_service.min_words} слов)",
+            text=asr.text,
+            duration=asr.duration,
+            word_count=asr.word_count,
+            asr_backend=asr.backend,
+        )
 
     pred = text_classifier.predict(asr.text, model=model or os.getenv("DEFAULT_MODEL", "daybovnet"))
     if not pred.get("success"):

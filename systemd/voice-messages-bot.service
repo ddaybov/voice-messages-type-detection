@@ -1,0 +1,19 @@
+[Unit]
+Description=Voice Messages Type Detection Telegram Bot
+After=network.target voice-messages-server.service
+Requires=voice-messages-server.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/voice-messages-type-detection
+Environment="PATH=/root/voice-messages-type-detection/.venv/bin"
+EnvironmentFile=/root/voice-messages-type-detection/.env
+ExecStart=/root/voice-messages-type-detection/.venv/bin/python telegram/bot.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
