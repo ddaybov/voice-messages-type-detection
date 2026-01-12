@@ -3,10 +3,8 @@ Telegram bot for voice messages type detection.
 Accepts voice messages and audio files, sends them to FastAPI server for classification.
 """
 
-import os
 import logging
 from typing import Optional
-from io import BytesIO
 
 import aiohttp
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -19,43 +17,30 @@ from telegram.ext import (
     filters,
 )
 
+from .config import (
+    API_URL, BOT_TOKEN, DEFAULT_MODEL, DEFAULT_LANG,
+    AVAILABLE_MODELS, user_sessions, SERVER_URL
+)
+from .utils import download_file, truncate_message
+from server.constants import DEFAULT_MAX_TEXT_PREVIEW_LENGTH, DEFAULT_CONFIDENCE_BAR_LENGTH
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
 
-# Configuration
-SERVER_URL = os.getenv("SERVER_URL", "http://127.0.0.1:8000")
-# If SERVER_URL doesn't end with /predict, add it
-if not SERVER_URL.endswith("/predict"):
-    API_URL = f"{SERVER_URL.rstrip('/')}/predict"
-else:
-    API_URL = SERVER_URL
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "daybovnet")
-DEFAULT_LANG = os.getenv("DEFAULT_LANG", "ru-RU")
-
-# Available models
-AVAILABLE_MODELS = {
-    "daybovnet": "DaybovNet (авторская CNN)",
-    "logreg": "Logistic Regression",
-    "svm": "SVM",
-    "nb": "Naive Bayes",
-    "bert": "BERT Transformer",
-    "dimanet": "DimaNet (CNN+BiLSTM)",
-    "ensemble": "Ансамбль моделей",
-}
-
-# User session storage: user_id -> selected_model
-user_sessions = {}
-
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command."""
+    if not update.message:
+        return
+    
     user_id = update.effective_user.id
     # Use logreg as fallback if default model is not available
-    user_sessions[user_id] = DEFAULT_MODEL if DEFAULT_MODEL in AVAILABLE_MODELS else "logreg"
+    user_sessions[user_id] = (
+        DEFAULT_MODEL if DEFAULT_MODEL in AVAILABLE_MODELS else "logreg"
+    )
 
     model_name = AVAILABLE_MODELS.get(user_sessions[user_id], user_sessions[user_id])
     welcome_text = (
@@ -102,9 +87,8 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if is_healthy:
         # Try to get supported formats
         try:
-            formats_url = SERVER_URL.replace("/predict", "/supported_formats").rstrip("/")
-            if not formats_url.endswith("/supported_formats"):
-                formats_url = f"{formats_url}/supported_formats"
+            base_url = SERVER_URL.replace("/predict", "").rstrip("/")
+            formats_url = f"{base_url}/supported_formats"
             
             async with aiohttp.ClientSession() as session:
                 async with session.get(
@@ -195,26 +179,13 @@ async def model_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
 
 
-async def download_file(
-    file_id: str, context: ContextTypes.DEFAULT_TYPE
-) -> Optional[BytesIO]:
-    """Download file from Telegram."""
-    try:
-        file = await context.bot.get_file(file_id)
-        file_bytes = BytesIO()
-        await file.download_to_memory(file_bytes)
-        file_bytes.seek(0)
-        return file_bytes
-    except Exception as e:
-        logger.error(f"Error downloading file {file_id}: {e}")
-        return None
 
 
 async def check_server_health() -> bool:
     """Check if server is available."""
-    health_url = SERVER_URL.replace("/predict", "/health").rstrip("/")
-    if not health_url.endswith("/health"):
-        health_url = f"{health_url}/health"
+    # Build health URL from SERVER_URL
+    base_url = SERVER_URL.replace("/predict", "").rstrip("/")
+    health_url = f"{base_url}/health"
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
@@ -227,7 +198,7 @@ async def check_server_health() -> bool:
 
 
 async def send_to_api(
-    audio_bytes: BytesIO,
+    audio_bytes,
     filename: str,
     model: str,
     lang: str = DEFAULT_LANG,
@@ -314,12 +285,14 @@ def format_response(result: dict) -> str:
 
     # Confidence bar
     conf_percent = int(confidence * 100)
-    conf_bar_length = 10
-    filled = int(conf_percent / 100 * conf_bar_length)
-    conf_bar = "█" * filled + "░" * (conf_bar_length - filled)
+    filled = int(conf_percent / 100 * DEFAULT_CONFIDENCE_BAR_LENGTH)
+    conf_bar = "█" * filled + "░" * (DEFAULT_CONFIDENCE_BAR_LENGTH - filled)
 
-    # Preview text (first 100 chars)
-    text_preview = text[:100] + "..." if len(text) > 100 else text
+    # Preview text
+    if len(text) > DEFAULT_MAX_TEXT_PREVIEW_LENGTH:
+        text_preview = text[:DEFAULT_MAX_TEXT_PREVIEW_LENGTH] + "..."
+    else:
+        text_preview = text
 
     # Format response according to README requirements:
     # - Класс (class)
@@ -376,9 +349,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     # Format and send response
     response_text = format_response(result)
-    # Telegram message limit is 4096 characters
-    if len(response_text) > 4096:
-        response_text = response_text[:4090] + "..."
+    response_text = truncate_message(response_text, max_length=4096)
     await processing_msg.edit_text(response_text, parse_mode="HTML")
 
 
@@ -420,9 +391,7 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     # Format and send response
     response_text = format_response(result)
-    # Telegram message limit is 4096 characters
-    if len(response_text) > 4096:
-        response_text = response_text[:4090] + "..."
+    response_text = truncate_message(response_text, max_length=4096)
     await processing_msg.edit_text(response_text, parse_mode="HTML")
 
 
@@ -470,9 +439,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     # Format and send response
     response_text = format_response(result)
-    # Telegram message limit is 4096 characters
-    if len(response_text) > 4096:
-        response_text = response_text[:4090] + "..."
+    response_text = truncate_message(response_text, max_length=4096)
     await processing_msg.edit_text(response_text, parse_mode="HTML")
 
 

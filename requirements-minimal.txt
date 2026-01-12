@@ -1,0 +1,24 @@
+# Минимальный набор зависимостей для работы бота и сервера
+# Без ML библиотек (torch, transformers) - только для базовой работы
+
+# Core dependencies
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.0.0
+
+# Telegram bot
+python-telegram-bot>=20.0
+aiohttp>=3.9.0
+
+# Audio processing
+pydub>=0.25.1
+SpeechRecognition>=3.10.0
+
+# Machine Learning (только для sklearn моделей)
+numpy>=1.24.0
+scikit-learn>=1.3.0
+joblib>=1.3.0
+
+# PyTorch и transformers НЕ включены - установите отдельно если нужны
+# Для CPU версии PyTorch:
+# pip install torch --index-url https://download.pytorch.org/whl/cpu

@@ -1,3 +1,6 @@
+"""
+FastAPI server for voice messages type detection.
+"""
 
 import os
 import tempfile
@@ -8,11 +11,21 @@ from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from .audio_processor import audio_service
-from .classifier import text_classifier
+from .config import config
+from .audio_processor import AudioService
+from .classifier import TextClassifier
+from .utils import cleanup_files
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("server")
+# Configure logging
+logging.basicConfig(
+    level=getattr(logging, config.server.log_level.upper(), logging.INFO),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+# Initialize services
+audio_service = AudioService()
+text_classifier = TextClassifier()
 
 class Health(BaseModel):
     status: str = "ok"
@@ -29,7 +42,12 @@ class PredictResponse(BaseModel):
     asr_backend: Optional[str] = None
     error: Optional[str] = None
 
-app = FastAPI(title="Speech Style Classifier", version="2.0.0")
+app = FastAPI(
+    title="Speech Style Classifier",
+    version="2.0.0",
+    description="API for classifying voice messages as formal or informal style"
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -54,72 +72,130 @@ async def supported_formats():
 async def predict(
     file: UploadFile = File(...),
     lang: str = Form("ru-RU"),
-    model: str = Form(None),
-):
-    suffix = os.path.splitext(file.filename or "audio")[1] or ".ogg"
+    model: str | None = Form(None),
+) -> PredictResponse:
+    """
+    Predict voice message style (formal/informal).
+    
+    Args:
+        file: Audio file to process
+        lang: Language code (e.g., 'ru-RU')
+        model: Model name for classification. If None, uses default.
+        
+    Returns:
+        PredictResponse with classification results or error message.
+    """
+    src_path: Optional[str] = None
+    wav_path: Optional[str] = None
+    
     try:
+        # Validate file size
+        data = await file.read()
+        max_bytes = int(config.server.max_upload_mb * 1024 * 1024)
+        if len(data) > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large. Maximum size: {config.server.max_upload_mb}MB"
+            )
+        
+        # Save uploaded file
+        suffix = os.path.splitext(file.filename or "audio")[1] or ".ogg"
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            data = await file.read()
-            max_mb = float(os.getenv("MAX_UPLOAD_MB", "20"))
-            if len(data) > max_mb * 1024 * 1024:
-                raise HTTPException(status_code=413, detail="File too large")
             tmp.write(data)
             src_path = tmp.name
-    except Exception as e:
-        logger.exception("Could not store uploaded file: %s", e)
-        raise HTTPException(status_code=400, detail="Upload failed") from e
-
-    wav_path = audio_service.to_wav(src_path)
-    if not wav_path:
-        logger.error(f"Failed to convert audio to WAV: {file.filename}")
-        os.unlink(src_path)
-        raise HTTPException(status_code=415, detail="Unsupported audio or FFmpeg error")
-    
-    logger.info(f"Transcribing audio: {wav_path}, lang={lang}, backend={audio_service.asr_backend}")
-    asr = audio_service.transcribe(wav_path, lang=lang)
-    logger.info(f"ASR result: success={asr is not None}, text_length={len(asr.text) if asr else 0}")
-    for p in (src_path, wav_path):
-        try: os.unlink(p)
-        except Exception: pass
-    if not asr:
-        return PredictResponse(
-            success=False, 
-            error="Не удалось распознать речь. Проверьте настройки ASR_BACKEND в .env и качество аудио."
+        
+        # Convert to WAV
+        wav_path = audio_service.to_wav(src_path)
+        if not wav_path:
+            logger.error(f"Failed to convert audio to WAV: {file.filename}")
+            raise HTTPException(
+                status_code=415,
+                detail="Unsupported audio format or FFmpeg error"
+            )
+        
+        # Transcribe audio
+        logger.info(
+            f"Transcribing audio: {wav_path}, lang={lang}, "
+            f"backend={audio_service.asr_backend}"
         )
-    if not asr.text or not asr.text.strip():
-        return PredictResponse(
-            success=False,
-            error="Не удалось распознать текст из аудио. Проверьте качество записи или настройки ASR.",
-            duration=asr.duration,
-            word_count=asr.word_count,
-            asr_backend=asr.backend,
+        asr = audio_service.transcribe(wav_path, lang=lang)
+        
+        if not asr:
+            return PredictResponse(
+                success=False,
+                error="Не удалось распознать речь. Проверьте настройки ASR_BACKEND в .env и качество аудио."
+            )
+        
+        logger.info(
+            f"ASR result: success=True, text_length={len(asr.text)}, "
+            f"words={asr.word_count}, duration={asr.duration:.2f}s"
         )
-    if audio_service.min_duration and asr.duration < audio_service.min_duration:
+        
+        # Validate transcription result
+        if not asr.text or not asr.text.strip():
+            return PredictResponse(
+                success=False,
+                error="Не удалось распознать текст из аудио. Проверьте качество записи или настройки ASR.",
+                duration=asr.duration,
+                word_count=asr.word_count,
+                asr_backend=asr.backend,
+            )
+        
+        if audio_service.min_duration and asr.duration < audio_service.min_duration:
+            return PredictResponse(
+                success=False,
+                error=f"Аудио слишком короткое (минимум {audio_service.min_duration} сек)",
+                duration=asr.duration,
+                word_count=asr.word_count,
+                asr_backend=asr.backend,
+            )
+        
+        if audio_service.min_words and asr.word_count < audio_service.min_words:
+            return PredictResponse(
+                success=False,
+                error=f"Текст слишком короткий (минимум {audio_service.min_words} слов)",
+                text=asr.text,
+                duration=asr.duration,
+                word_count=asr.word_count,
+                asr_backend=asr.backend,
+            )
+        
+        # Classify text
+        model_name = model or config.model.default_model
+        pred = text_classifier.predict(asr.text, model=model_name)
+        
+        if not pred.get("success"):
+            return PredictResponse(
+                success=False,
+                error=pred.get("error", "Classification failed"),
+                text=asr.text,
+                duration=asr.duration,
+                word_count=asr.word_count,
+                asr_backend=asr.backend,
+            )
+        
         return PredictResponse(
-            success=False, 
-            error=f"Аудио слишком короткое (минимум {audio_service.min_duration} сек)",
-            duration=asr.duration,
-            word_count=asr.word_count,
-            asr_backend=asr.backend,
-        )
-    if audio_service.min_words and asr.word_count < audio_service.min_words:
-        return PredictResponse(
-            success=False, 
-            error=f"Текст слишком короткий (минимум {audio_service.min_words} слов)",
+            **pred,
             text=asr.text,
             duration=asr.duration,
             word_count=asr.word_count,
             asr_backend=asr.backend,
         )
-
-    pred = text_classifier.predict(asr.text, model=model or os.getenv("DEFAULT_MODEL", "daybovnet"))
-    if not pred.get("success"):
-        return PredictResponse(success=False, error=pred.get("error"), text=asr.text, duration=asr.duration, word_count=asr.word_count, asr_backend=asr.backend)
-
-    return PredictResponse(
-        **pred, text=asr.text, duration=asr.duration, word_count=asr.word_count, asr_backend=asr.backend
-    )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error processing file {file.filename}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error") from e
+    finally:
+        # Clean up temporary files
+        cleanup_files(src_path, wav_path)
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host=os.getenv("HOST","0.0.0.0"), port=int(os.getenv("PORT","8000")), log_level=os.getenv("LOG_LEVEL","info"))
+    uvicorn.run(
+        app,
+        host=config.server.host,
+        port=config.server.port,
+        log_level=config.server.log_level,
+    )

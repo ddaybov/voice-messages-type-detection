@@ -8,6 +8,9 @@ from typing import Dict, Any, Optional, List
 import numpy as np
 import joblib
 
+from .config import config
+from .constants import MODEL_ALIASES
+
 # PyTorch imports - только при необходимости
 try:
     import torch
@@ -72,15 +75,25 @@ class PredictResult:
 
 class TextClassifier:
     """Registry + ensemble. Supports: sklearn, transformers, and DaybovNet."""
-    def __init__(self, models_dir: str | None = None):
-        self.models_dir = models_dir or os.getenv("MODELS_DIR", "./models")
-        self.label_names: Dict[str,str] = {}
+    
+    def __init__(self, models_dir: str | None = None, model_config=None):
+        """
+        Initialize TextClassifier.
+        
+        Args:
+            models_dir: Path to models directory. If None, uses config.
+            model_config: ModelConfig instance. If None, uses global config.
+        """
+        self.config = model_config or config.model
+        self.models_dir = models_dir or self.config.models_dir
+        self.label_names: Dict[str, str] = {}
         self._hf: dict = {}   # name -> (tok, model)
         self._day_model: Optional[nn.Module] = None
         self._day_vocab: Optional[dict] = None
         self._cnn_vocab: Optional[dict] = None
 
     def available(self) -> Dict[str, str]:
+        """Get dictionary of available models with descriptions."""
         return {
             "daybovnet": "Авторская char-CNN (DaybovNet)",
             "logreg": "Sklearn pipeline (Tfidf + LogisticRegression)",
@@ -89,7 +102,6 @@ class TextClassifier:
             "bert": "Transformer fine-tuned head",
             "dimanet": "Авторская CNN+BiLSTM+Attention",
             "ensemble": "Ансамбль (веса из models/ensemble.json)",
-            "ensemble": "Взвешенное усреднение доступных моделей",
         }
 
     def load_labels(self):
@@ -101,25 +113,22 @@ class TextClassifier:
             except Exception:
                 logger.warning("labels.json exists but could not be parsed")
 
-    def predict(self, text: str, model: str = "daybovnet") -> Dict[str, Any]:
+    def predict(self, text: str, model: str | None = None) -> Dict[str, Any]:
+        """
+        Predict text class using specified model.
+        
+        Args:
+            text: Input text to classify
+            model: Model name. If None, uses default from config.
+            
+        Returns:
+            Dictionary with prediction results.
+        """
         self.load_labels()
-        model = model or os.getenv("DEFAULT_MODEL", "daybovnet")
+        model = model or self.config.default_model
         
         # Normalize model aliases
-        model_aliases = {
-            "daybov": "daybovnet",
-            "daybovnet": "daybovnet",
-            "logreg": "logreg",
-            "logistic": "logreg",
-            "svm": "svm",
-            "nb": "nb",
-            "naive_bayes": "nb",
-            "bert": "bert",
-            "dimanet": "dimanet",
-            "dima": "dimanet",
-            "ensemble": "ensemble",
-        }
-        model = model_aliases.get(model.lower(), model)
+        model = MODEL_ALIASES.get(model.lower(), model)
         
         text = (text or "").strip()
         if not text:
@@ -191,11 +200,11 @@ class TextClassifier:
     def _predict_transformer(self, text: str) -> Dict[str, Any]:
         if not TRANSFORMERS_AVAILABLE:
             return PredictResult(False, error="Transformers library not installed").__dict__
-        name = os.getenv("TRANSFORMER_MODEL", "cointegrated/rubert-tiny2")
+        name = self.config.transformer_model
         if name not in self._hf:
             try:
                 tok = AutoTokenizer.from_pretrained(name)
-                mdl = AutoModelForSequenceClassification.from_pretrained(name, num_labels=int(os.getenv("NUM_LABELS","2")))
+                mdl = AutoModelForSequenceClassification.from_pretrained(name, num_labels=self.config.num_labels)
                 self._hf[name] = (tok, mdl.eval())
             except Exception:
                 logger.exception("Could not load transformer model: %s", name)
@@ -216,7 +225,7 @@ class TextClassifier:
         members: List[tuple[str, np.ndarray]] = []
         weights: Dict[str,float] = {}
 
-        spec = os.getenv("ENSEMBLE_WEIGHTS", "daybovnet:1,logreg:1")
+        spec = self.config.ensemble_weights
         for part in spec.split(","):
             if not part.strip(): continue
             name, w = part.split(":")
@@ -240,12 +249,12 @@ class TextClassifier:
             if not TRANSFORMERS_AVAILABLE:
                 logger.warning("Transformers unavailable for ensemble")
             else:
-                name = os.getenv("TRANSFORMER_MODEL", "cointegrated/rubert-tiny2")
+                name = self.config.transformer_model
                 try:
                     tok, mdl = self._hf.get(name) or (None, None)
                     if tok is None:
                         tok = AutoTokenizer.from_pretrained(name)
-                        mdl = AutoModelForSequenceClassification.from_pretrained(name, num_labels=int(os.getenv("NUM_LABELS","2")))
+                        mdl = AutoModelForSequenceClassification.from_pretrained(name, num_labels=self.config.num_labels)
                         self._hf[name]=(tok, mdl.eval())
                     inputs = tok([text], return_tensors="pt", truncation=True, padding=True)
                     with torch.no_grad():
@@ -339,7 +348,7 @@ class TextClassifier:
 
         probs = None
         used = 0.0
-        num_labels = int(os.getenv("NUM_LABELS", "2"))
+        num_labels = self.config.num_labels
         for m in members:
             mid = m.get("model")
             w = float(m.get("weight", 1.0))
@@ -356,4 +365,6 @@ class TextClassifier:
         label_name = self.label_names.get(str(label_idx), str(label_idx))
         return PredictResult(True, label_idx, label_name, conf, len(text), "ensemble").__dict__
 
+
+# Global instance (initialized in main.py)
 text_classifier = TextClassifier()

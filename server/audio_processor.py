@@ -3,25 +3,21 @@ import os
 import tempfile
 import logging
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Optional
 
 from pydub import AudioSegment
 import speech_recognition as sr
 
+from .config import config
+from .constants import SUPPORTED_AUDIO_FORMATS, SUPPORTED_LANGUAGES
+
 logger = logging.getLogger(__name__)
 
-FFMPEG_BIN = os.getenv("FFMPEG_BIN", "")
-FFPROBE_BIN = os.getenv("FFPROBE_BIN", "")
-
-if FFMPEG_BIN and os.path.exists(FFMPEG_BIN):
-    AudioSegment.converter = FFMPEG_BIN
-if FFPROBE_BIN and os.path.exists(FFPROBE_BIN):
-    AudioSegment.ffprobe = FFPROBE_BIN
-
-SUPPORTED_LANGUAGES = {
-    "ru-RU": "Русский",
-    "en-US": "English (US)",
-}
+# Configure FFmpeg paths
+if config.ffmpeg.ffmpeg_bin and os.path.exists(config.ffmpeg.ffmpeg_bin):
+    AudioSegment.converter = config.ffmpeg.ffmpeg_bin
+if config.ffmpeg.ffprobe_bin and os.path.exists(config.ffmpeg.ffprobe_bin):
+    AudioSegment.ffprobe = config.ffmpeg.ffprobe_bin
 
 @dataclass
 class ASRResult:
@@ -31,16 +27,27 @@ class ASRResult:
     backend: str
 
 class AudioService:
-    def __init__(self):
-        self.min_duration = float(os.getenv("MIN_DURATION", "0") or 0)
-        self.min_words = int(os.getenv("MIN_WORDS", "0") or 0)
-        self.asr_backend = os.getenv("ASR_BACKEND", "speech_recognition")
+    """Service for audio processing and speech recognition."""
+    
+    def __init__(self, asr_config=None):
+        """
+        Initialize AudioService.
+        
+        Args:
+            asr_config: ASRConfig instance. If None, uses global config.
+        """
+        self.config = asr_config or config.asr
+        self.min_duration = self.config.min_duration
+        self.min_words = self.config.min_words
+        self.asr_backend = self.config.backend
 
     def get_supported_formats(self) -> list[str]:
-        return ['wav', 'mp3', 'm4a', 'aac', 'flac', 'ogg', 'wma']
+        """Get list of supported audio formats."""
+        return SUPPORTED_AUDIO_FORMATS.copy()
 
     def get_supported_languages(self) -> dict:
-        return SUPPORTED_LANGUAGES
+        """Get dictionary of supported languages."""
+        return SUPPORTED_LANGUAGES.copy()
 
     def to_wav(self, file_path: str) -> Optional[str]:
         try:
@@ -144,7 +151,7 @@ class AudioService:
             logger.exception(f"Please install openai-whisper to use ASR_BACKEND=whisper: {e}")
             return None
         
-        model_name = os.getenv("WHISPER_MODEL", "tiny")
+        model_name = self.config.whisper_model
         lang_code = lang.split('-')[0] if '-' in lang else lang
         
         try:

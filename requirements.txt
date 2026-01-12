@@ -12,6 +12,8 @@ pydub>=0.25.1
 SpeechRecognition>=3.10.0
 
 # Machine Learning
+# PyTorch CPU-only version (much smaller, no CUDA dependencies)
+--index-url https://download.pytorch.org/whl/cpu
 torch>=2.0.0
 transformers>=4.35.0
 numpy>=1.24.0
