@@ -5,7 +5,12 @@ Configuration for Telegram bot.
 import os
 
 # Server configuration
-SERVER_URL = os.getenv("SERVER_URL", "http://127.0.0.1:8000")
+# If SERVER_URL is not set, try to construct it from HOST and PORT
+default_port = os.getenv("PORT", "8000")
+default_host = os.getenv("HOST", "127.0.0.1")
+default_server_url = f"http://{default_host}:{default_port}"
+
+SERVER_URL = os.getenv("SERVER_URL", default_server_url)
 if not SERVER_URL.endswith("/predict"):
     API_URL = f"{SERVER_URL.rstrip('/')}/predict"
 else:
