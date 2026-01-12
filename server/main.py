@@ -71,9 +71,13 @@ async def predict(
 
     wav_path = audio_service.to_wav(src_path)
     if not wav_path:
+        logger.error(f"Failed to convert audio to WAV: {file.filename}")
         os.unlink(src_path)
         raise HTTPException(status_code=415, detail="Unsupported audio or FFmpeg error")
+    
+    logger.info(f"Transcribing audio: {wav_path}, lang={lang}, backend={audio_service.asr_backend}")
     asr = audio_service.transcribe(wav_path, lang=lang)
+    logger.info(f"ASR result: success={asr is not None}, text_length={len(asr.text) if asr else 0}")
     for p in (src_path, wav_path):
         try: os.unlink(p)
         except Exception: pass

@@ -65,23 +65,47 @@ class AudioService:
 
     def _transcribe_speech_recognition(self, wav_path: str, lang: str) -> Optional[ASRResult]:
         r = sr.Recognizer()
-        with sr.AudioFile(wav_path) as source:
-            audio = r.record(source)
+        try:
+            with sr.AudioFile(wav_path) as source:
+                audio = r.record(source)
+        except Exception as e:
+            logger.error(f"Error reading audio file {wav_path}: {e}")
+            return None
+        
         text = ""
         backend_name = "SpeechRecognition(Google)"
+        
+        # Попытка 1: Google Speech Recognition
         try:
+            logger.info(f"Attempting Google Speech Recognition for language {lang}")
             text = r.recognize_google(audio, language=lang)
-        except sr.RequestError:
+            logger.info(f"Google Speech Recognition succeeded: {len(text)} characters")
+        except sr.RequestError as e:
+            logger.warning(f"Google Speech Recognition request failed: {e}, trying PocketSphinx...")
+            # Попытка 2: PocketSphinx (офлайн)
             try:
                 text = r.recognize_sphinx(audio, language=lang.split('-')[0])
                 backend_name = "SpeechRecognition(Sphinx)"
-            except Exception:
-                logger.exception("PocketSphinx not available/failed")
+                logger.info(f"PocketSphinx succeeded: {len(text)} characters")
+            except Exception as e:
+                logger.exception(f"PocketSphinx failed: {e}")
                 return None
-        except sr.UnknownValueError:
+        except sr.UnknownValueError as e:
+            logger.warning(f"Could not understand audio (UnknownValueError): {e}")
             text = ""
-        duration = AudioSegment.from_wav(wav_path).duration_seconds
+        except Exception as e:
+            logger.exception(f"Unexpected error in speech recognition: {e}")
+            return None
+        
+        try:
+            duration = AudioSegment.from_wav(wav_path).duration_seconds
+        except Exception as e:
+            logger.error(f"Error getting audio duration: {e}")
+            duration = 0.0
+        
         words = len(text.strip().split()) if text else 0
+        logger.info(f"ASR result: text_length={len(text)}, words={words}, duration={duration:.2f}s, backend={backend_name}")
+        
         return ASRResult(text=text, duration=float(duration), word_count=words, backend=backend_name)
 
     def _transcribe_vosk(self, wav_path: str, lang: str) -> Optional[ASRResult]:
