@@ -8,12 +8,8 @@ import sys
 import logging
 from typing import Optional
 
-# Add parent directory to path for imports when running as script
-if __name__ == "__main__":
-    parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    if parent_dir not in sys.path:
-        sys.path.insert(0, parent_dir)
-
+# IMPORTANT: Import telegram library BEFORE any local imports
+# to avoid conflict with local telegram/ directory
 import aiohttp
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -25,20 +21,13 @@ from telegram.ext import (
     filters,
 )
 
-# Use absolute imports that work both as script and module
-try:
-    from telegram.config import (
-        API_URL, BOT_TOKEN, DEFAULT_MODEL, DEFAULT_LANG,
-        AVAILABLE_MODELS, user_sessions, SERVER_URL
-    )
-    from telegram.utils import download_file, truncate_message
-except ImportError:
-    # Fallback for relative imports (when run as module)
-    from .config import (
-        API_URL, BOT_TOKEN, DEFAULT_MODEL, DEFAULT_LANG,
-        AVAILABLE_MODELS, user_sessions, SERVER_URL
-    )
-    from .utils import download_file, truncate_message
+# Import local modules - use relative imports when run as module
+# This works when running: python -m telegram.bot (from project root)
+from .config import (
+    API_URL, BOT_TOKEN, DEFAULT_MODEL, DEFAULT_LANG,
+    AVAILABLE_MODELS, user_sessions, SERVER_URL
+)
+from .utils import download_file, truncate_message
 
 try:
     from server.constants import DEFAULT_MAX_TEXT_PREVIEW_LENGTH, DEFAULT_CONFIDENCE_BAR_LENGTH

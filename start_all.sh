@@ -38,9 +38,9 @@ if ! kill -0 $SERVER_PID 2>/dev/null; then
     exit 1
 fi
 
-# Запуск бота в фоне
+# Запуск бота в фоне (как модуль, чтобы избежать конфликта имен)
 echo "🤖 Запуск бота..."
-nohup python telegram/bot.py > bot.log 2>&1 &
+nohup python -m telegram.bot > bot.log 2>&1 &
 BOT_PID=$!
 echo "   Бот запущен (PID: $BOT_PID)"
 
