@@ -91,8 +91,15 @@ class AudioService:
                 logger.exception(f"PocketSphinx failed: {e}")
                 return None
         except sr.UnknownValueError as e:
-            logger.warning(f"Could not understand audio (UnknownValueError): {e}")
-            text = ""
+            logger.warning(f"Google Speech Recognition could not understand audio: {e}, trying PocketSphinx...")
+            # Попытка fallback на PocketSphinx при UnknownValueError
+            try:
+                text = r.recognize_sphinx(audio, language=lang.split('-')[0])
+                backend_name = "SpeechRecognition(Sphinx)"
+                logger.info(f"PocketSphinx fallback succeeded: {len(text)} characters")
+            except Exception as e2:
+                logger.warning(f"PocketSphinx fallback also failed: {e2}")
+                text = ""
         except Exception as e:
             logger.exception(f"Unexpected error in speech recognition: {e}")
             return None
