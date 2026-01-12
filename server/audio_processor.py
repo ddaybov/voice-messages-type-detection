@@ -140,13 +140,39 @@ class AudioService:
     def _transcribe_whisper(self, wav_path: str, lang: str) -> Optional[ASRResult]:
         try:
             import whisper
-        except Exception:
-            logger.exception("Please install openai-whisper to use ASR_BACKEND=whisper"); return None
-        model_name = os.getenv("WHISPER_MODEL", "base")
-        model = whisper.load_model(model_name)
-        result = model.transcribe(wav_path, language=lang.split('-')[0])
-        text = result.get("text", "").strip()
-        duration = AudioSegment.from_wav(wav_path).duration_seconds
-        return ASRResult(text=text, duration=float(duration), word_count=len(text.split()), backend=f"Whisper({model_name})")
+        except Exception as e:
+            logger.exception(f"Please install openai-whisper to use ASR_BACKEND=whisper: {e}")
+            return None
+        
+        model_name = os.getenv("WHISPER_MODEL", "tiny")
+        lang_code = lang.split('-')[0] if '-' in lang else lang
+        
+        try:
+            logger.info(f"Loading Whisper model: {model_name}")
+            model = whisper.load_model(model_name)
+            logger.info(f"Whisper model {model_name} loaded successfully")
+        except Exception as e:
+            logger.exception(f"Error loading Whisper model {model_name}: {e}")
+            return None
+        
+        try:
+            logger.info(f"Transcribing with Whisper: {wav_path}, lang={lang_code}, model={model_name}")
+            result = model.transcribe(wav_path, language=lang_code if lang_code in whisper.tokenizer.LANGUAGES else None)
+            text = result.get("text", "").strip()
+            logger.info(f"Whisper transcription completed: text_length={len(text)}")
+        except Exception as e:
+            logger.exception(f"Error transcribing with Whisper: {e}")
+            return None
+        
+        try:
+            duration = AudioSegment.from_wav(wav_path).duration_seconds
+        except Exception as e:
+            logger.error(f"Error getting audio duration: {e}")
+            duration = result.get("duration", 0.0) if isinstance(result, dict) and "duration" in result else 0.0
+        
+        words = len(text.split()) if text else 0
+        logger.info(f"ASR result: text_length={len(text)}, words={words}, duration={duration:.2f}s, backend=Whisper({model_name})")
+        
+        return ASRResult(text=text, duration=float(duration), word_count=words, backend=f"Whisper({model_name})")
 
 audio_service = AudioService()
