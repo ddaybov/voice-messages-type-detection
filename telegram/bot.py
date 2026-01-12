@@ -3,8 +3,16 @@ Telegram bot for voice messages type detection.
 Accepts voice messages and audio files, sends them to FastAPI server for classification.
 """
 
+import os
+import sys
 import logging
 from typing import Optional
+
+# Add parent directory to path for imports when running as script
+if __name__ == "__main__":
+    parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if parent_dir not in sys.path:
+        sys.path.insert(0, parent_dir)
 
 import aiohttp
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -17,12 +25,27 @@ from telegram.ext import (
     filters,
 )
 
-from .config import (
-    API_URL, BOT_TOKEN, DEFAULT_MODEL, DEFAULT_LANG,
-    AVAILABLE_MODELS, user_sessions, SERVER_URL
-)
-from .utils import download_file, truncate_message
-from server.constants import DEFAULT_MAX_TEXT_PREVIEW_LENGTH, DEFAULT_CONFIDENCE_BAR_LENGTH
+# Use absolute imports that work both as script and module
+try:
+    from telegram.config import (
+        API_URL, BOT_TOKEN, DEFAULT_MODEL, DEFAULT_LANG,
+        AVAILABLE_MODELS, user_sessions, SERVER_URL
+    )
+    from telegram.utils import download_file, truncate_message
+except ImportError:
+    # Fallback for relative imports (when run as module)
+    from .config import (
+        API_URL, BOT_TOKEN, DEFAULT_MODEL, DEFAULT_LANG,
+        AVAILABLE_MODELS, user_sessions, SERVER_URL
+    )
+    from .utils import download_file, truncate_message
+
+try:
+    from server.constants import DEFAULT_MAX_TEXT_PREVIEW_LENGTH, DEFAULT_CONFIDENCE_BAR_LENGTH
+except ImportError:
+    # Fallback values if constants not available
+    DEFAULT_MAX_TEXT_PREVIEW_LENGTH = 100
+    DEFAULT_CONFIDENCE_BAR_LENGTH = 10
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
