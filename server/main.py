@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from .config import config
 from .audio_processor import AudioService
 from .classifier import TextClassifier
+from ml.model_factory import get_factory
 from .utils import cleanup_files
 
 # Configure logging
@@ -26,6 +27,7 @@ logger = logging.getLogger(__name__)
 # Initialize services
 audio_service = AudioService()
 text_classifier = TextClassifier()
+model_factory = get_factory()
 
 class Health(BaseModel):
     status: str = "ok"
@@ -40,6 +42,15 @@ class PredictResponse(BaseModel):
     word_count: Optional[int] = None
     model: Optional[str] = None
     asr_backend: Optional[str] = None
+    error: Optional[str] = None
+
+class PredictTextResponse(BaseModel):
+    success: bool
+    text: Optional[str] = None
+    label: Optional[str] = None
+    confidence: Optional[float] = None
+    probabilities: Optional[dict] = None
+    model: Optional[str] = None
     error: Optional[str] = None
 
 app = FastAPI(
@@ -66,6 +77,13 @@ async def supported_formats():
         "audio_formats": audio_service.get_supported_formats(),
         "languages": audio_service.get_supported_languages(),
         "status": "ok",
+    }
+
+@app.get("/models")
+async def list_models():
+    return {
+        "models": model_factory.get_available_models(),
+        "default": model_factory.config.get("default_model", "ensemble"),
     }
 
 @app.post("/predict", response_model=PredictResponse)
@@ -162,7 +180,20 @@ async def predict(
         
         # Classify text
         model_name = model or config.model.default_model
-        pred = text_classifier.predict(asr.text, model=model_name)
+        try:
+            classifier = model_factory.get_model(model_name)
+            label, confidence = classifier.predict(asr.text)
+            probabilities = classifier.predict_proba(asr.text)
+            pred = {
+                "success": True,
+                "label": 0 if label == "formal" else 1,
+                "label_name": label,
+                "confidence": confidence,
+                "model": classifier.name,
+                "probabilities": probabilities,
+            }
+        except Exception as exc:
+            pred = {"success": False, "error": str(exc)}
         
         if not pred.get("success"):
             return PredictResponse(
@@ -181,6 +212,26 @@ async def predict(
             word_count=asr.word_count,
             asr_backend=asr.backend,
         )
+
+@app.post("/predict_text", response_model=PredictTextResponse)
+async def predict_text(
+    text: str = Form(...),
+    model: str = Form("ensemble"),
+):
+    try:
+        classifier = model_factory.get_model(model)
+        label, confidence = classifier.predict(text)
+        probabilities = classifier.predict_proba(text)
+        return PredictTextResponse(
+            success=True,
+            text=text,
+            label=label,
+            confidence=confidence,
+            probabilities=probabilities,
+            model=classifier.name,
+        )
+    except Exception as exc:
+        return PredictTextResponse(success=False, error=str(exc), text=text, model=model)
         
     except HTTPException:
         raise
