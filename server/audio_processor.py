@@ -187,13 +187,14 @@ class AudioService:
 
         try:
             logger.info("Transcribing with Whisper: %s, lang=%s, model=%s", audio_path, lang_code, model_name)
+            # condition_on_previous_text=False — меньше повторений и галлюцинаций
             result = model.transcribe(
                 audio_path,
                 language=lang_code if lang_code in whisper.tokenizer.LANGUAGES else None,
                 fp16=False,
                 temperature=0.0,
                 no_speech_threshold=0.0,
-                initial_prompt="Привет, один два три." if lang_code == "ru" else None,
+                condition_on_previous_text=False,
             )
             text = result.get("text", "").strip()
             logger.info("Whisper transcription completed: text_length=%s", len(text))
@@ -205,6 +206,7 @@ class AudioService:
                     fp16=False,
                     temperature=0.0,
                     no_speech_threshold=0.0,
+                    condition_on_previous_text=False,
                 )
                 text = result.get("text", "").strip()
                 logger.info("Whisper (auto lang) completed: text_length=%s", len(text))
