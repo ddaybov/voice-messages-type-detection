@@ -1,9 +1,12 @@
 import os
+import logging
 import aiohttp
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from .keyboards import build_model_keyboard, build_back_keyboard
+
+logger = logging.getLogger(__name__)
 
 
 USER_MODELS: dict[int, str] = {}
@@ -149,13 +152,19 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             return
 
         file_bytes = await file.download_as_bytearray()
+        logger.info("Voice/audio downloaded: %d bytes, sending to %s/predict", len(file_bytes), server_url)
+        if len(file_bytes) == 0:
+            await update.message.reply_text("❌ Не удалось загрузить файл (0 байт)")
+            return
 
         async with aiohttp.ClientSession() as session:
             data = aiohttp.FormData()
-            data.add_field("file", file_bytes, filename="audio.ogg")
+            data.add_field("file", file_bytes, filename="audio.ogg", content_type="audio/ogg")
+            data.add_field("lang", "ru-RU")
             data.add_field("model", model_id)
             async with session.post(f"{server_url}/predict", data=data, timeout=120) as resp:
                 result = await resp.json()
+                logger.info("Predict response: success=%s, status=%d", result.get("success"), resp.status)
 
         if result.get("success"):
             label_name = result.get("label_name", "")
