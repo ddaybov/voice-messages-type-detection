@@ -69,12 +69,27 @@ class EnsembleClassifier(BaseClassifier):
             config = json.load(f)
 
         classifiers = {}
-        for model_id in config.get("models", []):
-            try:
-                classifiers[model_id] = model_factory.get_model(model_id)
-            except Exception as e:
-                print(f"⚠️ Не удалось создать {model_id}: {e}")
+        weights: Dict[str, float] = {}
 
-        weights = config.get("weights", {})
+        # New format: {"members": [{"model": "logreg", "weight": 0.5}, ...]}
+        if isinstance(config, dict) and "members" in config:
+            for member in config.get("members", []):
+                model_id = member.get("model")
+                if not model_id:
+                    continue
+                try:
+                    classifiers[model_id] = model_factory.get_model(model_id)
+                    if "weight" in member:
+                        weights[model_id] = float(member["weight"])
+                except Exception as e:
+                    print(f"⚠️ Не удалось создать {model_id}: {e}")
+        else:
+            # Legacy format: {"models": [...], "weights": {...}}
+            for model_id in config.get("models", []):
+                try:
+                    classifiers[model_id] = model_factory.get_model(model_id)
+                except Exception as e:
+                    print(f"⚠️ Не удалось создать {model_id}: {e}")
+            weights = config.get("weights", {})
 
         return cls(classifiers=classifiers, weights=weights)

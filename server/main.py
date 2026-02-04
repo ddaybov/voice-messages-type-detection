@@ -129,12 +129,12 @@ async def predict(
                 detail="Unsupported audio format or FFmpeg error"
             )
         
-        # Transcribe audio
+        # Transcribe audio (src_path для Whisper — пробуем исходный OGG без нашей конвертации)
         logger.info(
             f"Transcribing audio: {wav_path}, lang={lang}, "
             f"backend={audio_service.asr_backend}"
         )
-        asr = audio_service.transcribe(wav_path, lang=lang)
+        asr = audio_service.transcribe(wav_path, lang=lang, src_path=src_path)
         
         if not asr:
             return PredictResponse(
@@ -212,6 +212,15 @@ async def predict(
             asr_backend=asr.backend,
         )
 
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error processing file {file.filename}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error") from e
+    finally:
+        # Clean up temporary files
+        cleanup_files(src_path, wav_path)
+
 @app.post("/predict_text", response_model=PredictTextResponse)
 async def predict_text(
     text: str = Form(...),
@@ -232,15 +241,6 @@ async def predict_text(
         )
     except Exception as exc:
         return PredictTextResponse(success=False, error=str(exc), text=text, model=model)
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error processing file {file.filename}: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error") from e
-    finally:
-        # Clean up temporary files
-        cleanup_files(src_path, wav_path)
 
 if __name__ == "__main__":
     import uvicorn
