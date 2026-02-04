@@ -119,6 +119,15 @@ async def predict(
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(data)
             src_path = tmp.name
+
+        # Отладка: сохранить копию в /tmp/last_voice.ogg для ffprobe и ручной проверки
+        if os.getenv("DEBUG_SAVE_VOICE", "").lower() in ("1", "true", "yes"):
+            try:
+                import shutil
+                shutil.copy(src_path, "/tmp/last_voice.ogg")
+                logger.info("DEBUG_SAVE_VOICE: copied to /tmp/last_voice.ogg")
+            except Exception as e:
+                logger.warning("DEBUG_SAVE_VOICE copy failed: %s", e)
         
         # Convert to WAV
         wav_path = audio_service.to_wav(src_path)
