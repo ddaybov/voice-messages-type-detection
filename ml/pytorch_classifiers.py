@@ -1,17 +1,18 @@
+"""
+PyTorch классификаторы: BiLSTM, CNN.
+"""
+
 import json
-from typing import Dict, Tuple
-
-try:
-    import torch
-    import torch.nn as nn
-except ImportError:  # pragma: no cover - optional dependency
-    torch = None
-    nn = None
-
+import torch
+import torch.nn as nn
+from pathlib import Path
+from typing import Tuple, Dict
 from .base_classifier import BaseClassifier
 
 
 class BiLSTMModel(nn.Module):
+    """BiLSTM модель для классификации текста"""
+
     def __init__(
         self,
         vocab_size: int,
@@ -41,17 +42,18 @@ class BiLSTMModel(nn.Module):
 
 
 class CNNModel(nn.Module):
+    """CNN модель для классификации текста"""
+
     def __init__(
         self,
         vocab_size: int,
         embedding_dim: int = 128,
         num_filters: int = 100,
-        filter_sizes=None,
+        filter_sizes: list = [3, 4, 5],
         num_classes: int = 2,
         dropout: float = 0.5,
     ):
         super().__init__()
-        filter_sizes = filter_sizes or [3, 4, 5]
         self.embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx=0)
         self.convs = nn.ModuleList(
             [nn.Conv1d(embedding_dim, num_filters, fs) for fs in filter_sizes]
@@ -67,85 +69,101 @@ class CNNModel(nn.Module):
 
 
 class PyTorchClassifier(BaseClassifier):
-    """Classifier based on PyTorch models."""
+    """Базовый класс для PyTorch моделей"""
 
-    def __init__(
-        self,
-        name: str,
-        model_path: str,
-        vocab_path: str,
-        model_class: str,
-        description: str = "",
-        max_len: int = 64,
-    ):
-        super().__init__(name, description)
-        self.model_path = model_path
-        self.vocab_path = vocab_path
-        self.model_class = model_class
+    def __init__(self, model_path: str, vocab_path: str, max_len: int = 64):
+        super().__init__()
+        self.model_path = Path(model_path)
+        self.vocab_path = Path(vocab_path)
         self.max_len = max_len
-        self.model = None
         self.vocab = None
-        self.device = None
-
-    def load(self) -> None:
-        if torch is None:
-            raise ImportError("PyTorch is not installed")
-
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    def load_vocab(self) -> None:
+        """Загрузить словарь"""
         with open(self.vocab_path, "r", encoding="utf-8") as f:
             self.vocab = json.load(f)
 
-        if self.model_class == "bilstm":
-            self.model = BiLSTMModel(len(self.vocab))
-        elif self.model_class == "cnn":
-            self.model = CNNModel(len(self.vocab))
-        else:
-            raise ValueError(f"Unknown model_class: {self.model_class}")
-
-        self.model.load_state_dict(torch.load(self.model_path, map_location=self.device))
-        self.model.to(self.device)
-        self.model.eval()
-        self.is_loaded = True
-
-    def _tokenize(self, text: str) -> "torch.Tensor":
+    def tokenize(self, text: str) -> torch.Tensor:
+        """Токенизация текста"""
+        text = self.preprocess(text)
         words = text.split()
-        unk_id = self.vocab.get("<UNK>", 1)
-        pad_id = self.vocab.get("<PAD>", 0)
-        indices = [self.vocab.get(w, unk_id) for w in words]
+
+        indices = [self.vocab.get(w, self.vocab.get("<UNK>", 1)) for w in words]
 
         if len(indices) < self.max_len:
-            indices += [pad_id] * (self.max_len - len(indices))
+            indices += [0] * (self.max_len - len(indices))
         else:
             indices = indices[: self.max_len]
 
-        return torch.tensor([indices], dtype=torch.long).to(self.device)
+        return torch.tensor([indices], dtype=torch.long)
 
     def predict(self, text: str) -> Tuple[str, float]:
-        if not self.is_loaded:
-            self.load()
+        """Предсказание с уверенностью"""
+        self.ensure_loaded()
 
-        text = self.preprocess(text)
-        input_ids = self._tokenize(text)
+        input_ids = self.tokenize(text).to(self.device)
 
+        self.model.eval()
         with torch.no_grad():
             outputs = self.model(input_ids)
-            proba = torch.softmax(outputs, dim=1)[0]
-            pred = torch.argmax(proba).item()
+            probs = torch.softmax(outputs, dim=1)[0]
+            pred = torch.argmax(probs).item()
+            confidence = probs[pred].item()
 
-        label = "formal" if pred == 0 else "informal"
-        confidence = float(proba[pred])
-        return label, confidence
+        return self.label_map[pred], float(confidence)
 
     def predict_proba(self, text: str) -> Dict[str, float]:
-        if not self.is_loaded:
-            self.load()
+        """Вероятности классов"""
+        self.ensure_loaded()
 
-        text = self.preprocess(text)
-        input_ids = self._tokenize(text)
+        input_ids = self.tokenize(text).to(self.device)
 
+        self.model.eval()
         with torch.no_grad():
             outputs = self.model(input_ids)
-            proba = torch.softmax(outputs, dim=1)[0]
+            probs = torch.softmax(outputs, dim=1)[0]
 
-        return {"formal": float(proba[0]), "informal": float(proba[1])}
+        return {"formal": float(probs[0]), "informal": float(probs[1])}
+
+
+class BiLSTMClassifier(PyTorchClassifier):
+    """BiLSTM классификатор"""
+
+    def __init__(self, models_dir: str = "models"):
+        super().__init__(
+            model_path=f"{models_dir}/bilstm.pt",
+            vocab_path=f"{models_dir}/vocab.json",
+        )
+
+    def load(self) -> None:
+        """Загрузить модель"""
+        self.load_vocab()
+
+        self.model = BiLSTMModel(vocab_size=len(self.vocab))
+        self.model.load_state_dict(torch.load(self.model_path, map_location=self.device))
+        self.model.to(self.device)
+        self.model.eval()
+
+        self.is_loaded = True
+
+
+class CNNClassifier(PyTorchClassifier):
+    """CNN классификатор"""
+
+    def __init__(self, models_dir: str = "models"):
+        super().__init__(
+            model_path=f"{models_dir}/cnn.pt",
+            vocab_path=f"{models_dir}/vocab.json",
+        )
+
+    def load(self) -> None:
+        """Загрузить модель"""
+        self.load_vocab()
+
+        self.model = CNNModel(vocab_size=len(self.vocab))
+        self.model.load_state_dict(torch.load(self.model_path, map_location=self.device))
+        self.model.to(self.device)
+        self.model.eval()
+
+        self.is_loaded = True

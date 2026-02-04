@@ -1,30 +1,27 @@
-from typing import Dict, Tuple
+"""
+BERT классификатор для formal/informal классификации.
+Использует предобученную rubert-tiny2 модель.
+"""
 
-try:
-    import torch
-    from transformers import AutoTokenizer, AutoModelForSequenceClassification
-except ImportError:  # pragma: no cover - optional dependency
-    torch = None
-    AutoTokenizer = None
-    AutoModelForSequenceClassification = None
-
+import torch
+from pathlib import Path
+from typing import Tuple, Dict
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from .base_classifier import BaseClassifier
 
 
 class BertClassifier(BaseClassifier):
-    """Classifier based on BERT."""
+    """BERT классификатор (rubert-tiny2)"""
 
-    def __init__(self, name: str, model_path: str, description: str = ""):
-        super().__init__(name, description)
-        self.model_path = model_path
-        self.model = None
+    def __init__(self, model_path: str = "models/bert", max_length: int = 128):
+        super().__init__()
+        self.model_path = Path(model_path)
+        self.max_length = max_length
         self.tokenizer = None
-        self.device = None
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     def load(self) -> None:
-        if torch is None or AutoTokenizer is None:
-            raise ImportError("transformers is not installed")
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        """Загрузить модель и токенизатор"""
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_path)
         self.model = AutoModelForSequenceClassification.from_pretrained(self.model_path)
         self.model.to(self.device)
@@ -32,32 +29,45 @@ class BertClassifier(BaseClassifier):
         self.is_loaded = True
 
     def predict(self, text: str) -> Tuple[str, float]:
-        if not self.is_loaded:
-            self.load()
+        """Предсказание с уверенностью"""
+        self.ensure_loaded()
+
+        text = self.preprocess(text)
 
         inputs = self.tokenizer(
-            text, return_tensors="pt", truncation=True, padding=True, max_length=128
-        ).to(self.device)
+            text,
+            truncation=True,
+            padding="max_length",
+            max_length=self.max_length,
+            return_tensors="pt",
+        )
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
         with torch.no_grad():
             outputs = self.model(**inputs)
-            proba = torch.softmax(outputs.logits, dim=1)[0]
-            pred = torch.argmax(proba).item()
+            probs = torch.softmax(outputs.logits, dim=1)[0]
+            pred = torch.argmax(probs).item()
+            confidence = probs[pred].item()
 
-        label = "formal" if pred == 0 else "informal"
-        confidence = float(proba[pred])
-        return label, confidence
+        return self.label_map[pred], float(confidence)
 
     def predict_proba(self, text: str) -> Dict[str, float]:
-        if not self.is_loaded:
-            self.load()
+        """Вероятности классов"""
+        self.ensure_loaded()
+
+        text = self.preprocess(text)
 
         inputs = self.tokenizer(
-            text, return_tensors="pt", truncation=True, padding=True, max_length=128
-        ).to(self.device)
+            text,
+            truncation=True,
+            padding="max_length",
+            max_length=self.max_length,
+            return_tensors="pt",
+        )
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
         with torch.no_grad():
             outputs = self.model(**inputs)
-            proba = torch.softmax(outputs.logits, dim=1)[0]
+            probs = torch.softmax(outputs.logits, dim=1)[0]
 
-        return {"formal": float(proba[0]), "informal": float(proba[1])}
+        return {"formal": float(probs[0]), "informal": float(probs[1])}

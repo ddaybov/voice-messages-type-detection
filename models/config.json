@@ -1,87 +1,16 @@
 {
-  "models": {
-    "trained": {
-      "logreg": {
-        "name": "Logistic Regression",
-        "type": "sklearn",
-        "path": "models/trained/logreg.pkl",
-        "vectorizer": "models/trained/tfidf_vectorizer.pkl",
-        "description": "Быстрая классическая модель",
-        "emoji": "📊"
-      },
-      "svm": {
-        "name": "SVM (Linear)",
-        "type": "sklearn",
-        "path": "models/trained/svm.pkl",
-        "vectorizer": "models/trained/tfidf_vectorizer.pkl",
-        "description": "Support Vector Machine",
-        "emoji": "🎯"
-      },
-      "naive_bayes": {
-        "name": "Naive Bayes",
-        "type": "sklearn",
-        "path": "models/trained/naive_bayes.pkl",
-        "vectorizer": "models/trained/tfidf_vectorizer.pkl",
-        "description": "Вероятностная модель",
-        "emoji": "🎲"
-      },
-      "random_forest": {
-        "name": "Random Forest",
-        "type": "sklearn",
-        "path": "models/trained/random_forest.pkl",
-        "vectorizer": "models/trained/tfidf_vectorizer.pkl",
-        "description": "Ансамбль деревьев",
-        "emoji": "🌲"
-      },
-      "bilstm": {
-        "name": "BiLSTM",
-        "type": "pytorch",
-        "path": "models/trained/bilstm.pt",
-        "vocab": "models/trained/vocab.json",
-        "description": "Двунаправленная LSTM",
-        "emoji": "🔄"
-      },
-      "cnn": {
-        "name": "CNN",
-        "type": "pytorch",
-        "path": "models/trained/cnn.pt",
-        "vocab": "models/trained/vocab.json",
-        "description": "Свёрточная нейросеть",
-        "emoji": "🧠"
-      },
-      "bert": {
-        "name": "BERT (fine-tuned)",
-        "type": "transformers",
-        "path": "models/trained/bert",
-        "description": "Fine-tuned rubert-tiny2",
-        "emoji": "🤖"
-      },
-      "ensemble": {
-        "name": "Ensemble (все модели)",
-        "type": "ensemble",
-        "config": "models/trained/ensemble.json",
-        "description": "Взвешенный ансамбль всех моделей",
-        "emoji": "🎭"
-      }
-    },
-    "pretrained": {
-      "xlmr_formality": {
-        "name": "XLM-R Formality",
-        "type": "huggingface",
-        "model_id": "s-nlp/xlmr_formality_classifier",
-        "description": "Multilingual формальность (pretrained)",
-        "emoji": "🌍"
-      },
-      "rubert_sentiment": {
-        "name": "RuBERT Sentiment",
-        "type": "huggingface",
-        "model_id": "blanchefort/rubert-base-cased-sentiment",
-        "description": "Sentiment как прокси для стиля",
-        "emoji": "😊"
-      }
-    }
-  },
-  "default_model": "ensemble",
+  "default": "daybov",
+  "available": [
+    "daybov",
+    "logreg",
+    "svm",
+    "naive_bayes",
+    "random_forest",
+    "bilstm",
+    "cnn",
+    "bert",
+    "ensemble"
+  ],
   "labels": {
     "0": "formal",
     "1": "informal"

@@ -5,6 +5,7 @@ pydantic>=2.0.0
 
 # Telegram bot
 python-telegram-bot>=20.0
+aiogram>=3.0.0
 aiohttp>=3.9.0
 
 # Audio processing
@@ -16,9 +17,12 @@ SpeechRecognition>=3.10.0
 --index-url https://download.pytorch.org/whl/cpu
 torch>=2.0.0
 transformers>=4.35.0
+safetensors
 numpy>=1.24.0
 scikit-learn>=1.3.0
 joblib>=1.3.0
+datasets
+pandas
 
 # Optional ASR backends (uncomment if needed)
 # vosk>=0.3.45

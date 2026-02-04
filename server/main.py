@@ -13,7 +13,6 @@ from pydantic import BaseModel
 
 from .config import config
 from .audio_processor import AudioService
-from .classifier import TextClassifier
 from ml.model_factory import get_factory
 from .utils import cleanup_files
 
@@ -26,7 +25,6 @@ logger = logging.getLogger(__name__)
 
 # Initialize services
 audio_service = AudioService()
-text_classifier = TextClassifier()
 model_factory = get_factory()
 
 class Health(BaseModel):
@@ -83,7 +81,7 @@ async def supported_formats():
 async def list_models():
     return {
         "models": model_factory.get_available_models(),
-        "default": model_factory.config.get("default_model", "ensemble"),
+        "default": model_factory.get_default_model(),
     }
 
 @app.post("/predict", response_model=PredictResponse)
@@ -179,9 +177,10 @@ async def predict(
             )
         
         # Classify text
-        model_name = model or config.model.default_model
+        model_name = model or model_factory.get_default_model()
         try:
             classifier = model_factory.get_model(model_name)
+            classifier.ensure_loaded()
             label, confidence = classifier.predict(asr.text)
             probabilities = classifier.predict_proba(asr.text)
             pred = {
@@ -189,7 +188,7 @@ async def predict(
                 "label": 0 if label == "formal" else 1,
                 "label_name": label,
                 "confidence": confidence,
-                "model": classifier.name,
+                "model": model_name,
                 "probabilities": probabilities,
             }
         except Exception as exc:
@@ -220,6 +219,7 @@ async def predict_text(
 ):
     try:
         classifier = model_factory.get_model(model)
+        classifier.ensure_loaded()
         label, confidence = classifier.predict(text)
         probabilities = classifier.predict_proba(text)
         return PredictTextResponse(
@@ -228,7 +228,7 @@ async def predict_text(
             label=label,
             confidence=confidence,
             probabilities=probabilities,
-            model=classifier.name,
+            model=model,
         )
     except Exception as exc:
         return PredictTextResponse(success=False, error=str(exc), text=text, model=model)

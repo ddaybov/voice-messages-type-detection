@@ -1,122 +1,169 @@
-import json
-import os
-from typing import Dict, Optional
+"""
+Фабрика моделей для динамической загрузки классификаторов.
+"""
 
+import json
+from pathlib import Path
+from typing import Dict, Optional
 from .base_classifier import BaseClassifier
-from .sklearn_classifiers import SklearnClassifier
-from .pytorch_classifiers import PyTorchClassifier
+from .sklearn_classifiers import (
+    LogisticRegressionClassifier,
+    SVMClassifier,
+    NaiveBayesClassifier,
+    RandomForestClassifier,
+    DaybovClassifier,
+)
+from .pytorch_classifiers import BiLSTMClassifier, CNNClassifier
 from .bert_classifier import BertClassifier
-from .pretrained_classifier import PretrainedClassifier
 from .ensemble_classifier import EnsembleClassifier
 
 
 class ModelFactory:
-    """Factory for creating and managing models."""
+    """Фабрика для создания и управления классификаторами"""
 
-    def __init__(self, config_path: str = "models/config.json"):
-        self.config_path = config_path
-        self.config = self._load_config()
-        self.models: Dict[str, BaseClassifier] = {}
+    MODEL_CLASSES = {
+        "daybov": DaybovClassifier,
+        "logreg": LogisticRegressionClassifier,
+        "svm": SVMClassifier,
+        "naive_bayes": NaiveBayesClassifier,
+        "random_forest": RandomForestClassifier,
+        "bilstm": BiLSTMClassifier,
+        "cnn": CNNClassifier,
+        "bert": BertClassifier,
+    }
 
-    def _load_config(self) -> dict:
-        if not os.path.exists(self.config_path):
-            raise FileNotFoundError(f"Model config not found: {self.config_path}")
-        with open(self.config_path, "r", encoding="utf-8") as f:
-            return json.load(f)
+    MODEL_INFO = {
+        "daybov": {
+            "name": "Daybov Model",
+            "description": "TF-IDF + Logistic Regression (авторская)",
+            "emoji": "🎯",
+            "type": "sklearn",
+        },
+        "logreg": {
+            "name": "Logistic Regression",
+            "description": "Классическая логистическая регрессия",
+            "emoji": "📊",
+            "type": "sklearn",
+        },
+        "svm": {
+            "name": "SVM",
+            "description": "Support Vector Machine",
+            "emoji": "⚡",
+            "type": "sklearn",
+        },
+        "naive_bayes": {
+            "name": "Naive Bayes",
+            "description": "Наивный байесовский классификатор",
+            "emoji": "🎲",
+            "type": "sklearn",
+        },
+        "random_forest": {
+            "name": "Random Forest",
+            "description": "Случайный лес",
+            "emoji": "🌲",
+            "type": "sklearn",
+        },
+        "bilstm": {
+            "name": "BiLSTM",
+            "description": "Bidirectional LSTM нейросеть",
+            "emoji": "🔄",
+            "type": "pytorch",
+        },
+        "cnn": {
+            "name": "CNN",
+            "description": "Сверточная нейросеть",
+            "emoji": "🧠",
+            "type": "pytorch",
+        },
+        "bert": {
+            "name": "BERT",
+            "description": "Трансформер rubert-tiny2",
+            "emoji": "🤖",
+            "type": "transformer",
+        },
+        "ensemble": {
+            "name": "Ensemble",
+            "description": "Ансамбль всех моделей",
+            "emoji": "🎭",
+            "type": "ensemble",
+        },
+    }
 
-    def get_available_models(self) -> Dict[str, dict]:
-        result = {}
-        for category in ["trained", "pretrained"]:
-            if category in self.config["models"]:
-                for model_id, model_info in self.config["models"][category].items():
-                    result[model_id] = {
-                        "name": model_info["name"],
-                        "description": model_info.get("description", ""),
-                        "emoji": model_info.get("emoji", "🤖"),
-                        "category": category,
-                    }
-        return result
+    def __init__(self, models_dir: str = "models"):
+        self.models_dir = Path(models_dir)
+        self._cache: Dict[str, BaseClassifier] = {}
+        self._load_config()
+
+    def _load_config(self) -> None:
+        config_path = self.models_dir / "config.json"
+        if config_path.exists():
+            with open(config_path, "r") as f:
+                self.config = json.load(f)
+        else:
+            self.config = {"default": "daybov", "available": list(self.MODEL_CLASSES.keys())}
 
     def get_model(self, model_id: str) -> BaseClassifier:
-        if model_id in self.models:
-            return self.models[model_id]
+        if model_id in self._cache:
+            return self._cache[model_id]
 
-        if model_id in self.config["models"].get("trained", {}):
-            model_info = self.config["models"]["trained"][model_id]
-            model = self._create_trained_model(model_id, model_info)
-        elif model_id in self.config["models"].get("pretrained", {}):
-            model_info = self.config["models"]["pretrained"][model_id]
-            model = self._create_pretrained_model(model_id, model_info)
+        if model_id == "ensemble":
+            ensemble_path = self.models_dir / "ensemble.json"
+            classifier = EnsembleClassifier.from_config(str(ensemble_path), self)
+        elif model_id in self.MODEL_CLASSES:
+            classifier = self.MODEL_CLASSES[model_id](str(self.models_dir))
         else:
-            raise ValueError(f"Unknown model: {model_id}")
+            raise ValueError(f"Неизвестная модель: {model_id}")
 
-        self.models[model_id] = model
-        return model
+        self._cache[model_id] = classifier
+        return classifier
 
-    def _create_trained_model(self, model_id: str, info: dict) -> BaseClassifier:
-        model_type = info["type"]
+    def get_available_models(self) -> Dict[str, dict]:
+        available = {}
+        for model_id, info in self.MODEL_INFO.items():
+            if self._model_exists(model_id):
+                available[model_id] = info.copy()
+        return available
 
-        if model_type == "sklearn":
-            return SklearnClassifier(
-                name=info["name"],
-                model_path=info["path"],
-                vectorizer_path=info["vectorizer"],
-                description=info.get("description", ""),
-            )
-        if model_type == "pytorch":
-            return PyTorchClassifier(
-                name=info["name"],
-                model_path=info["path"],
-                vocab_path=info["vocab"],
-                model_class=model_id,
-                description=info.get("description", ""),
-            )
-        if model_type == "transformers":
-            return BertClassifier(
-                name=info["name"],
-                model_path=info["path"],
-                description=info.get("description", ""),
-            )
-        if model_type == "ensemble":
-            return self._create_ensemble(info)
+    def _model_exists(self, model_id: str) -> bool:
+        if model_id == "ensemble":
+            return (self.models_dir / "ensemble.json").exists()
+        if model_id in ["daybov", "logreg"]:
+            return (self.models_dir / "logreg.pkl").exists()
+        if model_id == "svm":
+            return (self.models_dir / "svm.pkl").exists()
+        if model_id == "naive_bayes":
+            return (self.models_dir / "naive_bayes.pkl").exists()
+        if model_id == "random_forest":
+            return (self.models_dir / "random_forest.pkl").exists()
+        if model_id == "bilstm":
+            return (self.models_dir / "bilstm.pt").exists()
+        if model_id == "cnn":
+            return (self.models_dir / "cnn.pt").exists()
+        if model_id == "bert":
+            return (self.models_dir / "bert").is_dir()
+        return False
 
-        raise ValueError(f"Unknown model type: {model_type}")
+    def get_default_model(self) -> str:
+        return self.config.get("default", "daybov")
 
-    def _create_pretrained_model(self, model_id: str, info: dict) -> BaseClassifier:
-        return PretrainedClassifier(
-            name=info["name"],
-            model_id=info["model_id"],
-            description=info.get("description", ""),
-        )
-
-    def _create_ensemble(self, info: dict) -> EnsembleClassifier:
-        config_path = info["config"]
-        if not os.path.exists(config_path):
-            raise FileNotFoundError(f"Ensemble config not found: {config_path}")
-        with open(config_path, "r", encoding="utf-8") as f:
-            ensemble_config = json.load(f)
-
-        classifiers = {}
-        for model_id in ensemble_config["models"]:
-            classifiers[model_id] = self.get_model(model_id)
-
-        return EnsembleClassifier(
-            name=info["name"],
-            classifiers=classifiers,
-            weights=ensemble_config.get("weights"),
-            description=info.get("description", ""),
-        )
-
-    def get_default_model(self) -> BaseClassifier:
-        default_id = self.config.get("default_model", "logreg")
-        return self.get_model(default_id)
+    def preload_models(self, model_ids: list = None) -> None:
+        if model_ids is None:
+            model_ids = list(self.get_available_models().keys())
+        print(f"📦 Предзагрузка {len(model_ids)} моделей...")
+        for model_id in model_ids:
+            try:
+                model = self.get_model(model_id)
+                model.load()
+                print(f"  ✅ {model_id}")
+            except Exception as e:
+                print(f"  ⚠️ {model_id}: {e}")
 
 
-_factory: Optional[ModelFactory] = None
+_factory = None
 
 
-def get_factory() -> ModelFactory:
+def get_factory(models_dir: str = "models") -> ModelFactory:
     global _factory
     if _factory is None:
-        _factory = ModelFactory()
+        _factory = ModelFactory(models_dir)
     return _factory
