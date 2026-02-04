@@ -1,0 +1,35 @@
+#!/bin/bash
+# Скрипт для запуска Telegram бота
+
+set -e
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+# Активация виртуального окружения
+if [ -d ".venv" ]; then
+    source .venv/bin/activate
+else
+    echo "❌ Виртуальное окружение не найдено. Запустите ./scripts/deploy.sh"
+    exit 1
+fi
+
+# Загрузка переменных окружения
+if [ -f ".env" ]; then
+    export $(cat .env | grep -v '^#' | xargs)
+else
+    echo "⚠️  .env файл не найден"
+fi
+
+# Проверка BOT_TOKEN
+if [ -z "$BOT_TOKEN" ]; then
+    echo "❌ BOT_TOKEN не установлен в .env файле!"
+    exit 1
+fi
+
+echo "🤖 Запуск Telegram бота..."
+echo "   Server URL: ${SERVER_URL:-http://127.0.0.1:8000}"
+echo ""
+
+# Запуск бота как модуль
+python -m bot.bot

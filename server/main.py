@@ -9,9 +9,9 @@ from typing import Optional
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 
 from .config import config
+from .schemas import Health, PredictResponse, PredictTextResponse
 from .audio_processor import AudioService
 from ml.model_factory import get_factory
 from .utils import cleanup_files
@@ -25,31 +25,7 @@ logger = logging.getLogger(__name__)
 
 # Initialize services
 audio_service = AudioService()
-model_factory = get_factory()
-
-class Health(BaseModel):
-    status: str = "ok"
-
-class PredictResponse(BaseModel):
-    success: bool
-    text: Optional[str] = None
-    label: Optional[int] = None
-    label_name: Optional[str] = None
-    confidence: Optional[float] = None
-    duration: Optional[float] = None
-    word_count: Optional[int] = None
-    model: Optional[str] = None
-    asr_backend: Optional[str] = None
-    error: Optional[str] = None
-
-class PredictTextResponse(BaseModel):
-    success: bool
-    text: Optional[str] = None
-    label: Optional[str] = None
-    confidence: Optional[float] = None
-    probabilities: Optional[dict] = None
-    model: Optional[str] = None
-    error: Optional[str] = None
+model_factory = get_factory(config.model.models_dir)
 
 app = FastAPI(
     title="Speech Style Classifier",

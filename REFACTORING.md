@@ -2,6 +2,14 @@
 
 ## Основные изменения
 
+### 0. Последний рефакторинг (структура и сервер)
+
+- **Схемы API** — Pydantic-модели ответов вынесены в `server/schemas.py` (Health, PredictResponse, PredictTextResponse). В `main.py` используются только импорты из schemas.
+- **ModelFactory и конфиг** — при инициализации сервера вызывается `get_factory(config.model.models_dir)`, путь к моделям задаётся через `server/config.py` (переменная `MODELS_DIR`).
+- **Устаревший код** — `server/classifier.py` помечен как DEPRECATED: не используется (классификация идёт через `ml.model_factory` и пакет `ml`). Файл оставлен для справки, при желании можно удалить.
+- **Документация** — вся fix/deploy и прочая документация перенесена в каталог `docs/`: FIX_*.md, CHECK_*.md, ASR_DIFFERENCES.md, DEPLOY.md, QUICK_START.md, START_AFTER_INSTALL.md, CURSOR_DATA_PREPARATION.md, FREE_SPACE.md.
+- **Скрипты** — скрипты запуска и развёртывания перенесены в `scripts/`: start_server.sh, start_bot.sh, start_all.sh, stop_all.sh, deploy.sh, QUICK_FIX_SERVER_URL.sh, cleanup_disk.sh, install_pytorch_whisper*.sh. В каждом скрипте используется переход в корень проекта `ROOT="$(cd "$(dirname "$0")/.." && pwd)"` и `cd "$ROOT"`. Запуск: `./scripts/deploy.sh`, `./scripts/start_server.sh` и т.д. Описание — в `scripts/README.md`.
+
 ### 1. Централизованная конфигурация (`server/config.py`)
 
 Создан модуль `config.py` с классами конфигурации:
@@ -57,18 +65,19 @@
 
 ```
 voice-messages-type-detection/
+├── docs/                  # Документация (FIX_*, DEPLOY, QUICK_START и т.д.)
+├── scripts/               # Скрипты запуска и развёртывания (см. scripts/README.md)
 ├── server/
 │   ├── __init__.py
 │   ├── config.py          # Конфигурация
 │   ├── constants.py       # Константы
+│   ├── schemas.py         # Pydantic-схемы ответов API
 │   ├── utils.py           # Утилиты
 │   ├── main.py            # FastAPI приложение
 │   ├── audio_processor.py # Обработка аудио и ASR
-│   └── classifier.py      # Классификация текста
-├── telegram/
-│   ├── __init__.py
+│   └── classifier.py      # DEPRECATED — не используется
+├── bot/
 │   ├── config.py          # Конфигурация бота
-│   ├── utils.py           # Утилиты бота
 │   ├── bot.py             # Telegram бот
 │   └── check_server.py    # Проверка сервера
 └── ...

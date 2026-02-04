@@ -12,8 +12,8 @@ ssh root@80.87.105.61
 cd /root
 git clone https://github.com/ddaybov/voice-messages-type-detection.git
 cd voice-messages-type-detection
-chmod +x deploy.sh start_server.sh start_bot.sh
-./deploy.sh
+chmod +x scripts/deploy.sh scripts/start_server.sh scripts/start_bot.sh
+./scripts/deploy.sh
 ```
 
 ## Шаг 3: Настройка .env
@@ -76,10 +76,10 @@ sudo journalctl -u voice-messages-bot -n 100
 sudo apt-get install screen
 
 # Запуск сервера
-screen -S server -d -m bash -c "cd /root/voice-messages-type-detection && source .venv/bin/activate && ./start_server.sh"
+screen -S server -d -m bash -c "cd /root/voice-messages-type-detection && source .venv/bin/activate && ./scripts/start_server.sh"
 
 # Запуск бота
-screen -S bot -d -m bash -c "cd /root/voice-messages-type-detection && source .venv/bin/activate && ./start_bot.sh"
+screen -S bot -d -m bash -c "cd /root/voice-messages-type-detection && source .venv/bin/activate && ./scripts/start_bot.sh"
 
 # Просмотр сессий
 screen -ls

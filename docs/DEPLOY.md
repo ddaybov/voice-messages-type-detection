@@ -26,8 +26,8 @@ cd voice-messages-type-detection
 ### 3. Установка зависимостей
 
 ```bash
-chmod +x deploy.sh
-./deploy.sh
+chmod +x scripts/deploy.sh
+./scripts/deploy.sh
 ```
 
 ### 4. Настройка .env файла
@@ -89,7 +89,7 @@ screen -S server
 
 # Запуск бота в screen
 screen -S bot
-./start_bot.sh
+./scripts/start_bot.sh
 # Нажмите Ctrl+A, затем D для отсоединения
 
 # Подключение к сессиям
@@ -104,7 +104,7 @@ screen -r bot
 nohup ./start_server.sh > server.log 2>&1 &
 
 # Запуск бота
-nohup ./start_bot.sh > bot.log 2>&1 &
+nohup ./scripts/start_bot.sh > bot.log 2>&1 &
 ```
 
 ## Проверка работы

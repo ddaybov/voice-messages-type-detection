@@ -8,18 +8,21 @@ bot/             # телеграм-бот
 server/          # FastAPI: /health, /supported_formats, /predict, /models
 ml/              # обучение и классификаторы
 models/          # артефакты моделей и config.json
+docs/            # документация (FIX_*, DEPLOY, QUICK_START и др.)
+scripts/         # скрипты запуска и развёртывания
 notebooks/       # исследовательские ноутбуки
 data/            # датасеты
 ```
 Диаграмма архитектуры намеренно не включена.
 
 ## Запуск
-1) Установка:
+1) Установка (вручную или через скрипт):
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
 ```
+Или развёртывание одной командой: `./scripts/deploy.sh`
 2) Обучение авторской модели (пример):
 ```bash
 python ml/train_daybov_model.py --data data/train.csv --outdir models/
@@ -28,10 +31,12 @@ python ml/train_daybov_model.py --data data/train.csv --outdir models/
 ```bash
 uvicorn server.main:app --host 0.0.0.0 --port 8000 --reload
 ```
+Или: `./scripts/start_server.sh`
 4) Телеграм-бот:
 ```bash
 python -m bot.bot
 ```
+Или: `./scripts/start_bot.sh`. Запуск сервера и бота вместе: `./scripts/start_all.sh`, остановка: `./scripts/stop_all.sh`. Подробнее — в `scripts/README.md`.
 
 ## Обучение и метрики
 Скрипты в `ml/`:

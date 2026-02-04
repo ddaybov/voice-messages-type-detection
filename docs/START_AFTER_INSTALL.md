@@ -27,24 +27,24 @@ nano .env
 ## 3. Запуск сервера
 
 ```bash
-./start_server.sh
+./scripts/start_server.sh
 ```
 
 Или в screen:
 ```bash
-screen -S server -d -m bash -c "cd /root/voice-messages-type-detection && source .venv/bin/activate && ./start_server.sh"
+screen -S server -d -m bash -c "cd /root/voice-messages-type-detection && source .venv/bin/activate && ./scripts/start_server.sh"
 ```
 
 ## 4. Запуск бота
 
 В другом терминале или screen:
 ```bash
-./start_bot.sh
+./scripts/start_bot.sh
 ```
 
 Или в screen:
 ```bash
-screen -S bot -d -m bash -c "cd /root/voice-messages-type-detection && source .venv/bin/activate && ./start_bot.sh"
+screen -S bot -d -m bash -c "cd /root/voice-messages-type-detection && source .venv/bin/activate && ./scripts/start_bot.sh"
 ```
 
 ## 5. Проверка работы

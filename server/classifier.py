@@ -1,3 +1,8 @@
+"""
+DEPRECATED: Этот модуль не используется. Классификация выполняется через ml.model_factory
+и классификаторы из пакета ml (server/main.py вызывает get_factory() и get_model()).
+Оставлен для справки; можно удалить после проверки.
+"""
 
 import os
 import json
