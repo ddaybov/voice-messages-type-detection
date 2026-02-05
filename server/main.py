@@ -83,8 +83,10 @@ async def predict(
     try:
         # Validate file size
         data = await file.read()
+        upload_size = len(data)
+        logger.info("Upload received: filename=%s, size=%d bytes", file.filename, upload_size)
         max_bytes = int(config.server.max_upload_mb * 1024 * 1024)
-        if len(data) > max_bytes:
+        if upload_size > max_bytes:
             raise HTTPException(
                 status_code=413,
                 detail=f"File too large. Maximum size: {config.server.max_upload_mb}MB"
@@ -95,6 +97,11 @@ async def predict(
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(data)
             src_path = tmp.name
+        saved_size = os.path.getsize(src_path)
+        logger.info("Saved to %s, size=%d bytes", src_path, saved_size)
+        if saved_size == 0:
+            cleanup_files(src_path, None)
+            raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
         # Отладка: сохранить копию в /tmp/last_voice.ogg для ffprobe и ручной проверки
         if os.getenv("DEBUG_SAVE_VOICE", "").lower() in ("1", "true", "yes"):

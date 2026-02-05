@@ -186,7 +186,11 @@ class AudioService:
             return None
 
         try:
-            logger.info("Transcribing with Whisper: %s, lang=%s, model=%s", audio_path, lang_code, model_name)
+            file_size = os.path.getsize(audio_path) if os.path.isfile(audio_path) else 0
+            logger.info("Transcribing with Whisper: %s (%d bytes), lang=%s, model=%s", audio_path, file_size, lang_code, model_name)
+            if file_size == 0:
+                logger.warning("Whisper input file is empty")
+                return None
             # condition_on_previous_text=False — меньше повторений и галлюцинаций
             result = model.transcribe(
                 audio_path,
