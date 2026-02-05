@@ -9,6 +9,23 @@ from .keyboards import build_model_keyboard, build_back_keyboard
 logger = logging.getLogger(__name__)
 
 
+async def _download_telegram_file(bot, file) -> bytearray:
+    """Скачать файл с Telegram по прямому URL (полная загрузка)."""
+    try:
+        token = getattr(bot, "token", None)
+        path = getattr(file, "file_path", None)
+        if token and path:
+            url = f"https://api.telegram.org/file/bot{token}/{path}"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+                    if resp.status == 200:
+                        data = await resp.read()
+                        return bytearray(data)
+    except Exception as e:
+        logger.warning("Direct Telegram download failed (%s), using download_as_bytearray", e)
+    return await file.download_as_bytearray()
+
+
 USER_MODELS: dict[int, str] = {}
 MODELS_CACHE: dict | None = None
 
@@ -144,22 +161,40 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     server_url = os.getenv("SERVER_URL", "http://localhost:8000").rstrip("/")
     try:
         if update.message.voice:
-            file = await context.bot.get_file(update.message.voice.file_id)
+            tg_voice = update.message.voice
+            file = await context.bot.get_file(tg_voice.file_id)
+            tg_size = getattr(tg_voice, "file_size", None)
+            tg_mime = getattr(tg_voice, "mime_type", None)
         elif update.message.audio:
-            file = await context.bot.get_file(update.message.audio.file_id)
+            tg_audio = update.message.audio
+            file = await context.bot.get_file(tg_audio.file_id)
+            tg_size = getattr(tg_audio, "file_size", None)
+            tg_mime = getattr(tg_audio, "mime_type", None)
         else:
             await update.message.reply_text("❌ Неизвестный формат аудио")
             return
 
-        file_bytes = await file.download_as_bytearray()
-        logger.info("Voice/audio downloaded: %d bytes, sending to %s/predict", len(file_bytes), server_url)
+        # Расширение из file_path Telegram (голос = OGG Opus, часто .oga). См. https://core.telegram.org/bots/api#voice
+        file_path = getattr(file, "file_path", None)
+        ext = os.path.splitext(file_path)[1] if file_path else ".oga"
+        if ext.lower() not in (".oga", ".ogg", ".opus"):
+            ext = ".oga"
+        filename = f"audio{ext}"
+        content_type = tg_mime or "audio/ogg"
+
+        # Скачиваем по прямому URL, чтобы гарантированно получить полный файл
+        file_bytes = await _download_telegram_file(context.bot, file)
+        logger.info(
+            "Voice/audio downloaded: %d bytes (Telegram file_size=%s), filename=%s, sending to %s/predict",
+            len(file_bytes), tg_size, filename, server_url,
+        )
         if len(file_bytes) == 0:
             await update.message.reply_text("❌ Не удалось загрузить файл (0 байт)")
             return
 
         async with aiohttp.ClientSession() as session:
             data = aiohttp.FormData()
-            data.add_field("file", file_bytes, filename="audio.ogg", content_type="audio/ogg")
+            data.add_field("file", file_bytes, filename=filename, content_type=content_type)
             data.add_field("lang", "ru-RU")
             data.add_field("model", model_id)
             async with session.post(f"{server_url}/predict", data=data, timeout=120) as resp:
